@@ -106,7 +106,7 @@ const NotificationsEmail = () => {
           otherwise: Yup.string().nullable(),
         })
         .matches(
-          /-----BEGIN PGP PRIVATE KEY BLOCK-----.+-----END PGP PRIVATE KEY BLOCK-----/,
+          /-----BEGIN PGP PRIVATE KEY BLOCK-----.+-----END PGP PRIVATE KEY BLOCK-----/s,
           intl.formatMessage(messages.validationPgpPrivateKey)
         ),
       pgpPassword: Yup.string().when('pgpPrivateKey', {
@@ -175,7 +175,7 @@ const NotificationsEmail = () => {
             appearance: 'success',
             autoDismiss: true,
           });
-        } catch (e) {
+        } catch {
           addToast(intl.formatMessage(messages.emailsettingsfailed), {
             appearance: 'error',
             autoDismiss: true,
@@ -226,7 +226,7 @@ const NotificationsEmail = () => {
               autoDismiss: true,
               appearance: 'success',
             });
-          } catch (e) {
+          } catch {
             if (toastId) {
               removeToast(toastId);
             }
