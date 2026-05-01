@@ -2192,6 +2192,89 @@ paths:
                   appDataPermissions:
                     type: boolean
                     example: true
+  /uptimerobot:
+    get:
+      summary: Get monitor status
+      description: |
+        Returns the cached UptimeRobot monitor list (in the admin-customised
+        order, with name and description overrides applied) plus the IDs of
+        the monitors that the requesting user has subscribed to for recovery
+        notifications. Visible to any logged-in user.
+      tags:
+        - uptimerobot
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  lastFetched:
+                    type: number
+                    description: UNIX ms timestamp of the last successful poll, or 0.
+                  monitors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+                        defaultName:
+                          type: string
+                        description:
+                          type: string
+                        url:
+                          type: string
+                        type:
+                          type: integer
+                        status:
+                          type: string
+                          enum: [up, down, paused, unknown]
+                        rawStatus:
+                          type: integer
+                  subscribedMonitorIds:
+                    type: array
+                    items:
+                      type: integer
+                  fetchError:
+                    type: string
+  /uptimerobot/subscribe/{monitorId}:
+    parameters:
+      - in: path
+        name: monitorId
+        required: true
+        schema:
+          type: integer
+    post:
+      summary: Subscribe to recovery notification
+      description: |
+        Marks the requesting user to receive a push notification when the
+        given monitor recovers and stays online for the configured stable
+        window. Idempotent — re-subscribing is a no-op.
+      tags:
+        - uptimerobot
+      responses:
+        '204':
+          description: Subscription registered (or already existed).
+        '400':
+          description: Invalid monitor id.
+        '404':
+          description: Monitor not found in the cached list.
+    delete:
+      summary: Cancel a recovery subscription
+      description: Removes the requesting user's recovery subscription for the given monitor. Idempotent.
+      tags:
+        - uptimerobot
+      responses:
+        '204':
+          description: Subscription removed (or did not exist).
+        '400':
+          description: Invalid monitor id.
   /settings/main:
     get:
       summary: Get main settings
@@ -2955,6 +3038,162 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SonarrSettings'
+  /settings/uptimerobot:
+    get:
+      summary: Get UptimeRobot settings
+      description: |
+        Returns the configured UptimeRobot integration settings. The API key
+        is masked; `apiKeySet` indicates whether one has been saved.
+      tags:
+        - settings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  apiKey:
+                    type: string
+                    description: Always masked when an API key is set.
+                  apiKeySet:
+                    type: boolean
+                  monitorOrder:
+                    type: array
+                    items:
+                      type: integer
+                  monitorOverrides:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+                        description:
+                          type: string
+                  recoveryNotificationsEnabled:
+                    type: boolean
+                  recoveryStableMinutes:
+                    type: integer
+                  pollIntervalSeconds:
+                    type: integer
+    post:
+      summary: Update UptimeRobot settings
+      description: |
+        Updates the integration settings. Pass `apiKey` to set or clear it
+        (an empty string clears, omit the key to leave the saved value
+        untouched). `monitorOverrides` is sanitised server-side: trimmed,
+        length-capped (name 80 chars, description 240), de-duplicated by id,
+        and entries with neither name nor description are dropped.
+      tags:
+        - settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                apiKey:
+                  type: string
+                  nullable: true
+                monitorOrder:
+                  type: array
+                  items:
+                    type: integer
+                monitorOverrides:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                        maxLength: 80
+                      description:
+                        type: string
+                        maxLength: 240
+                recoveryNotificationsEnabled:
+                  type: boolean
+                recoveryStableMinutes:
+                  type: integer
+                  minimum: 0
+                  maximum: 1440
+                pollIntervalSeconds:
+                  type: integer
+                  minimum: 30
+                  maximum: 3600
+      responses:
+        '200':
+          description: Settings saved
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: Save failed
+  /settings/uptimerobot/test:
+    post:
+      summary: Test an UptimeRobot API key
+      description: |
+        Validates the supplied API key (or the currently saved one if not
+        provided) by calling UptimeRobot's getMonitors endpoint. Returns the
+        live monitor list so the settings UI can populate the customisation
+        editor.
+      tags:
+        - settings
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apiKey:
+                  type: string
+      responses:
+        '200':
+          description: API key works; monitors returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  monitors:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          description: API key missing or rejected by UptimeRobot.
+  /settings/uptimerobot/monitors:
+    get:
+      summary: Get cached monitor list (admin)
+      description: |
+        Returns the most recently polled monitor list with admin overrides
+        applied. Triggers a fresh poll if the cache is empty.
+      tags:
+        - settings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '500':
+          description: Poll failed.
   /settings/public:
     get:
       summary: Get public settings
