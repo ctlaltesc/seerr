@@ -30,7 +30,7 @@ const messages = defineMessages('components.Settings.SettingsAbout', {
   outofdate: 'Out of Date',
   uptodate: 'Up to Date',
   runningDevelop:
-    'You are running the <code>develop</code> branch of Seerr, which is only recommended for those contributing to development or assisting with bleeding-edge testing.',
+    'You are running a custom AI-generated fork of Seerr which is not official and not held to the same security or testing standards as the genuine project, only recommended for advanced users who understand what this means.',
 });
 
 const SettingsAbout = () => {
@@ -80,8 +80,8 @@ const SettingsAbout = () => {
                 <a
                   href={
                     data.version.startsWith('develop-')
-                      ? `https://github.com/seerr-team/seerr/compare/${status.commitTag}...develop`
-                      : 'https://github.com/seerr-team/seerr/releases'
+                      ? `https://github.com/ctlaltesc/seerr/compare/${status.commitTag}...develop`
+                      : 'https://github.com/ctlaltesc/seerr/releases'
                   }
                   target="_blank"
                   rel="noopener noreferrer"
@@ -97,8 +97,8 @@ const SettingsAbout = () => {
                 <a
                   href={
                     data.version.startsWith('develop-')
-                      ? 'https://github.com/seerr-team/seerr/commits/develop'
-                      : 'https://github.com/seerr-team/seerr/releases'
+                      ? 'https://github.com/ctlaltesc/seerr/commits/develop'
+                      : 'https://github.com/ctlaltesc/seerr/releases'
                   }
                   target="_blank"
                   rel="noopener noreferrer"
