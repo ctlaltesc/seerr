@@ -41,6 +41,7 @@ import requestRoutes from './request';
 import searchRoutes from './search';
 import serviceRoutes from './service';
 import tvRoutes from './tv';
+import uptimeRobotRoutes from './uptimerobot';
 import user from './user';
 
 const router = Router();
@@ -171,6 +172,7 @@ router.use('/collection', isAuthenticated(), collectionRoutes);
 router.use('/service', isAuthenticated(), serviceRoutes);
 router.use('/issue', isAuthenticated(), issueRoutes);
 router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
+router.use('/uptimerobot', isAuthenticated(), uptimeRobotRoutes);
 router.use('/auth', authRoutes);
 router.use(
   '/overrideRule',
