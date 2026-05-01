@@ -4,12 +4,15 @@ import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
 import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
+import Modal from '@app/components/Common/Modal';
 import PageTitle from '@app/components/Common/PageTitle';
 import { Permission, useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
+import { Transition } from '@headlessui/react';
 import {
   BellAlertIcon,
   BellSlashIcon,
+  ExclamationTriangleIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import axios from 'axios';
@@ -48,6 +51,25 @@ const messages = defineMessages('components.Status', {
     'Recovery notifications are currently disabled by the administrator.',
   visitMonitor: 'Open',
   lastChecked: 'Last checked {time}',
+  reportProblem: 'Report a problem',
+  reportTitle: 'Report a problem',
+  reportDescription:
+    'Check off any services you’re having trouble with. The administrator will be notified, and other people will see that you’re also having issues.',
+  reportSubmit: 'Submit',
+  reportSubmitting: 'Submitting…',
+  reportNoSelection: 'Select at least one service.',
+  reportSuccess:
+    '{count, plural, one {Submitted. The administrator has been notified.} other {Submitted. The administrator has been notified about your # reports.}}',
+  reportAllAlready:
+    'You’ve already reported all the services you selected. The administrator was already notified.',
+  reportFailed: 'Could not submit the report.',
+  reportCount:
+    '{count, plural, one {# other person is reporting an issue} other {# other people are reporting an issue}}',
+  reportCountSelf:
+    '{count, plural, one {You are reporting an issue} other {You and # others are reporting an issue}}',
+  resolveAll: 'Mark all reports for this service resolved',
+  resolveAllSuccess: 'Reports cleared.',
+  resolveAllFailed: 'Could not clear reports.',
 });
 
 interface StatusMonitor {
@@ -82,6 +104,12 @@ interface Announcement {
   postedBy?: { id: number; displayName: string; avatar: string };
 }
 
+interface ReportCount {
+  monitorId: number;
+  name: string;
+  count: number;
+}
+
 const Status = () => {
   const intl = useIntl();
   const { addToast } = useToasts();
@@ -100,6 +128,16 @@ const Status = () => {
     Announcement[]
   >('/api/v1/uptimerobot/announcements', { refreshInterval: 60000 });
 
+  const { data: reportCounts, mutate: revalidateReports } = useSWR<
+    ReportCount[]
+  >('/api/v1/uptimerobot/reports', { refreshInterval: 60000 });
+
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportSelection, setReportSelection] = useState<Set<number>>(
+    new Set()
+  );
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+
   const isAdmin = hasPermission(Permission.ADMIN);
 
   const retractAnnouncement = async (id: number) => {
@@ -112,6 +150,74 @@ const Status = () => {
       await revalidateAnnouncements();
     } catch {
       addToast(intl.formatMessage(messages.retractFailed), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    }
+  };
+
+  const toggleReportSelection = (monitorId: number) => {
+    setReportSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(monitorId)) next.delete(monitorId);
+      else next.add(monitorId);
+      return next;
+    });
+  };
+
+  const submitReport = async () => {
+    if (reportSelection.size === 0) {
+      addToast(intl.formatMessage(messages.reportNoSelection), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+      return;
+    }
+    setReportSubmitting(true);
+    try {
+      const response = await axios.post<{
+        created: number;
+        alreadyReported: number;
+      }>('/api/v1/uptimerobot/reports', {
+        monitorIds: [...reportSelection],
+      });
+      const { created, alreadyReported } = response.data;
+      if (created === 0 && alreadyReported > 0) {
+        addToast(intl.formatMessage(messages.reportAllAlready), {
+          appearance: 'info',
+          autoDismiss: true,
+        });
+      } else {
+        addToast(
+          intl.formatMessage(messages.reportSuccess, { count: created }),
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+      setReportModalOpen(false);
+      setReportSelection(new Set());
+      await revalidateReports();
+    } catch {
+      addToast(intl.formatMessage(messages.reportFailed), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
+  const resolveReportsForMonitor = async (monitorId: number) => {
+    try {
+      await axios.post(
+        `/api/v1/uptimerobot/reports/resolve?monitorId=${monitorId}`
+      );
+      addToast(intl.formatMessage(messages.resolveAllSuccess), {
+        appearance: 'success',
+        autoDismiss: true,
+      });
+      await revalidateReports();
+    } catch {
+      addToast(intl.formatMessage(messages.resolveAllFailed), {
         appearance: 'error',
         autoDismiss: true,
       });
@@ -165,11 +271,29 @@ const Status = () => {
   return (
     <>
       <PageTitle title={intl.formatMessage(messages.status)} />
-      <div className="mb-4">
-        <Header>{intl.formatMessage(messages.statusTitle)}</Header>
-        <p className="mt-2 text-sm text-gray-400">
-          {intl.formatMessage(messages.statusDescription)}
-        </p>
+      <div className="mb-4 flex flex-col justify-between gap-2 lg:flex-row lg:items-end">
+        <div className="min-w-0">
+          <Header>{intl.formatMessage(messages.statusTitle)}</Header>
+          <p className="mt-2 text-sm text-gray-400">
+            {intl.formatMessage(messages.statusDescription)}
+          </p>
+        </div>
+        {data?.configured && data.monitors.length > 0 && (
+          <div className="flex flex-shrink-0">
+            <Button
+              buttonType="warning"
+              type="button"
+              onClick={() => {
+                setReportSelection(new Set());
+                setReportModalOpen(true);
+              }}
+              data-testid="status-report-problem"
+            >
+              <ExclamationTriangleIcon />
+              <span>{intl.formatMessage(messages.reportProblem)}</span>
+            </Button>
+          </div>
+        )}
       </div>
 
       {announcements && announcements.length > 0 && (
@@ -310,6 +434,37 @@ const Status = () => {
                           {monitor.url}
                         </a>
                       )}
+                      {(() => {
+                        const report = (reportCounts ?? []).find(
+                          (r) => r.monitorId === monitor.id
+                        );
+                        if (!report || report.count === 0) return null;
+                        return (
+                          <div className="mt-2 flex items-center gap-2 text-xs text-yellow-300">
+                            <ExclamationTriangleIcon className="h-4 w-4 flex-shrink-0" />
+                            <span>
+                              {intl.formatMessage(messages.reportCount, {
+                                count: report.count,
+                              })}
+                            </span>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  resolveReportsForMonitor(monitor.id)
+                                }
+                                title={intl.formatMessage(messages.resolveAll)}
+                                aria-label={intl.formatMessage(
+                                  messages.resolveAll
+                                )}
+                                className="text-yellow-300 transition hover:text-white"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                   <Badge
@@ -353,6 +508,58 @@ const Status = () => {
           )}
         </>
       )}
+
+      <Transition
+        as="div"
+        show={reportModalOpen}
+        enter="transition-opacity duration-300"
+        enterFrom="opacity-0"
+        enterTo="opacity-100"
+        leave="transition-opacity duration-300"
+        leaveFrom="opacity-100"
+        leaveTo="opacity-0"
+      >
+        <Modal
+          title={intl.formatMessage(messages.reportTitle)}
+          onCancel={() => setReportModalOpen(false)}
+          onOk={() => submitReport()}
+          okText={
+            reportSubmitting
+              ? intl.formatMessage(messages.reportSubmitting)
+              : intl.formatMessage(messages.reportSubmit)
+          }
+          okButtonType="primary"
+          okDisabled={reportSubmitting || reportSelection.size === 0}
+        >
+          <p className="mb-4 text-sm text-gray-300">
+            {intl.formatMessage(messages.reportDescription)}
+          </p>
+          {data?.monitors.length ? (
+            <ul className="space-y-1">
+              {data.monitors.map((monitor) => (
+                <li key={monitor.id}>
+                  <label
+                    htmlFor={`report-monitor-${monitor.id}`}
+                    className="flex cursor-pointer items-center gap-3 rounded-md border border-gray-700 bg-gray-800/60 px-3 py-2 text-sm text-white transition hover:bg-gray-700/60"
+                  >
+                    <input
+                      id={`report-monitor-${monitor.id}`}
+                      type="checkbox"
+                      checked={reportSelection.has(monitor.id)}
+                      onChange={() => toggleReportSelection(monitor.id)}
+                    />
+                    <span className="truncate">{monitor.name}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-400">
+              {intl.formatMessage(messages.noMonitors)}
+            </p>
+          )}
+        </Modal>
+      </Transition>
     </>
   );
 };

@@ -77,6 +77,16 @@ class UptimeRobotService {
   }
 
   /**
+   * Returns the wall-clock ms timestamp of the most recent observation in
+   * which the given monitor was reported DOWN. Returns `undefined` when
+   * the monitor has never been observed down in this process's lifetime.
+   * Used by the problem-report auto-resolve rule.
+   */
+  public getMonitorLastDown(monitorId: number): number | undefined {
+    return this.recoveryStates.get(monitorId)?.lastDownAt;
+  }
+
+  /**
    * Returns the most recently fetched monitor list, ordered according to
    * the admin's configured `monitorOrder` (with any unranked monitors
    * appended at the end in their API order) and with admin overrides
