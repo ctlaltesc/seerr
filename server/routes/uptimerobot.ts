@@ -380,12 +380,10 @@ statusRoutes.post<never, unknown, { monitorIds?: number[] }>(
         });
       }
 
-      return res
-        .status(200)
-        .json({
-          created: newRows.length,
-          alreadyReported: requested.length - newRows.length,
-        });
+      return res.status(200).json({
+        created: newRows.length,
+        alreadyReported: requested.length - newRows.length,
+      });
     } catch (e) {
       logger.error('Failed to create problem report', {
         label: 'API',
