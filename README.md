@@ -12,9 +12,9 @@
 <a href="https://github.com/seerr-team/seerr/blob/develop/LICENSE"><img alt="GitHub" src="https://img.shields.io/github/license/seerr-team/seerr"></a>
 
 ##
-**The purpose of this fork is to add custom broadcast capability for mobile (web push) notifications and an uptime status page with announcement bulletins.**
+**The purpose of this fork is to add custom broadcast capability for mobile (web push) notifications and an uptime status page with custom announcement bulletins.**
 
-This fork is entirely AI-generated and reviewed. It is not held to the same security or stabiity testing standards as the genuine project and is only recommended for advanced users who understand what this means.
+This fork is entirely AI-generated and reviewed. It is not held to the same security or stability testing standards as the genuine project and is only recommended for advanced users who understand what this means.
 
 ##
 
