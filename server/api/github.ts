@@ -61,6 +61,15 @@ interface GithubCommit {
   ];
 }
 
+/**
+ * The repo this fork compares its running commit/release against to decide
+ * whether it's "up to date". Override with the SEERR_REPO env var if you
+ * fork this fork — defaults to ctlaltesc/seerr so the bottom-left badge
+ * stops permanently flagging "Out of Date" against upstream commits this
+ * fork doesn't share.
+ */
+const SEERR_REPO = process.env.SEERR_REPO ?? 'ctlaltesc/seerr';
+
 class GithubAPI extends ExternalAPI {
   constructor() {
     super(
@@ -83,7 +92,7 @@ class GithubAPI extends ExternalAPI {
   } = {}): Promise<GitHubRelease[]> {
     try {
       const data = await this.get<GitHubRelease[]>(
-        '/repos/seerr-team/seerr/releases',
+        `/repos/${SEERR_REPO}/releases`,
         {
           params: {
             per_page: take,
@@ -110,7 +119,7 @@ class GithubAPI extends ExternalAPI {
   } = {}): Promise<GithubCommit[]> {
     try {
       const data = await this.get<GithubCommit[]>(
-        '/repos/seerr-team/seerr/commits',
+        `/repos/${SEERR_REPO}/commits`,
         {
           params: {
             per_page: take,
