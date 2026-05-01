@@ -29,6 +29,7 @@ import gravatarUrl from 'gravatar-url';
 import { findIndex, sortBy } from 'lodash';
 import type { EntityManager } from 'typeorm';
 import { In, Not } from 'typeorm';
+import webpush from 'web-push';
 import userSettingsRoutes from './usersettings';
 
 const router = Router();
@@ -321,6 +322,147 @@ router.post<
       label: 'API',
     });
     next({ status: 500, message: 'Failed to register subscription.' });
+  }
+});
+
+router.post<
+  never,
+  { sent: number; failed: number; recipients: number },
+  { subject: string; message?: string; userIds?: number[] }
+>('/broadcast', isAuthenticated(Permission.ADMIN), async (req, res, next) => {
+  try {
+    const subject = (req.body.subject ?? '').trim();
+    const message = (req.body.message ?? '').trim() || undefined;
+
+    if (!subject) {
+      return next({
+        status: 400,
+        message: 'A subject is required to broadcast a notification.',
+      });
+    }
+
+    const userRepository = getRepository(User);
+    const userPushSubRepository = getRepository(UserPushSubscription);
+    const settings = getSettings();
+
+    if (!settings.vapidPublic || !settings.vapidPrivate) {
+      return next({
+        status: 500,
+        message: 'Web push is not configured on this server.',
+      });
+    }
+
+    const mainUser = await userRepository.findOne({ where: { id: 1 } });
+
+    if (!mainUser) {
+      return next({
+        status: 500,
+        message: 'Main user not found; unable to broadcast notification.',
+      });
+    }
+
+    const targetUserIds = Array.isArray(req.body.userIds)
+      ? req.body.userIds.filter((id) => Number.isFinite(id))
+      : [];
+
+    const subsQuery = userPushSubRepository
+      .createQueryBuilder('pushSub')
+      .leftJoinAndSelect('pushSub.user', 'user');
+
+    if (targetUserIds.length > 0) {
+      subsQuery.where('pushSub.userId IN (:...users)', {
+        users: targetUserIds,
+      });
+    }
+
+    const allSubs = await subsQuery.getMany();
+
+    const recipientIds = new Set(allSubs.map((sub) => sub.user.id));
+
+    webpush.setVapidDetails(
+      `mailto:${mainUser.email}`,
+      settings.vapidPublic,
+      settings.vapidPrivate
+    );
+
+    const notificationPayload = Buffer.from(
+      JSON.stringify({
+        notificationType: 'CUSTOM_BROADCAST',
+        subject,
+        message,
+      }),
+      'utf-8'
+    );
+
+    let sent = 0;
+    let failed = 0;
+
+    await Promise.all(
+      allSubs.map(async (pushSub) => {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: pushSub.endpoint,
+              keys: {
+                auth: pushSub.auth,
+                p256dh: pushSub.p256dh,
+              },
+            },
+            notificationPayload
+          );
+          sent++;
+        } catch (e) {
+          failed++;
+          const err = e as {
+            statusCode?: number;
+            status?: number;
+            message?: string;
+          };
+          const statusCode = err.statusCode ?? err.status;
+          const isPermanentFailure = statusCode === 410 || statusCode === 404;
+
+          logger.error(
+            isPermanentFailure
+              ? 'Error sending broadcast push notification; removing invalid subscription'
+              : 'Error sending broadcast push notification',
+            {
+              label: 'API',
+              recipient: pushSub.user.displayName,
+              errorMessage: err.message ?? String(e),
+              statusCode: statusCode ?? 'unknown',
+            }
+          );
+
+          if (isPermanentFailure) {
+            await userPushSubRepository.remove(pushSub);
+          }
+        }
+      })
+    );
+
+    logger.info('Broadcast push notification dispatched', {
+      label: 'API',
+      sender: req.user?.displayName,
+      subject,
+      sent,
+      failed,
+      recipients: recipientIds.size,
+    });
+
+    return res.status(200).json({
+      sent,
+      failed,
+      recipients: recipientIds.size,
+    });
+  } catch (e) {
+    logger.error('Failed to send broadcast push notification', {
+      label: 'API',
+      errorMessage: e.message,
+    });
+    next({
+      status: 500,
+      message: 'Failed to send broadcast notification.',
+    });
   }
 });
 

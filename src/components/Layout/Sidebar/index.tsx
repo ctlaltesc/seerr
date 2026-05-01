@@ -10,6 +10,7 @@ import {
   ExclamationTriangleIcon,
   EyeSlashIcon,
   FilmIcon,
+  MegaphoneIcon,
   SparklesIcon,
   TvIcon,
   UsersIcon,
@@ -29,6 +30,7 @@ export const menuMessages = defineMessages('components.Layout.Sidebar', {
   blocklist: 'Blocklist',
   issues: 'Issues',
   users: 'Users',
+  broadcast: 'Broadcast',
   settings: 'Settings',
 });
 
@@ -104,9 +106,17 @@ const SidebarLinks: SidebarLinkProps[] = [
     href: '/users',
     messagesKey: 'users',
     svgIcon: <UsersIcon className="mr-3 h-6 w-6" />,
-    activeRegExp: /^\/users/,
+    activeRegExp: /^\/users(?!\/broadcast)/,
     requiredPermission: Permission.MANAGE_USERS,
     dataTestId: 'sidebar-menu-users',
+  },
+  {
+    href: '/users/broadcast',
+    messagesKey: 'broadcast',
+    svgIcon: <MegaphoneIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/users\/broadcast/,
+    requiredPermission: Permission.ADMIN,
+    dataTestId: 'sidebar-menu-broadcast',
   },
   {
     href: '/settings',
