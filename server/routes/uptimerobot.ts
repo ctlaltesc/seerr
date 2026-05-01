@@ -277,9 +277,11 @@ statusRoutes.delete<{ id: string }>(
 
 /**
  * Returns the count of active problem reports per monitor visible on the
- * public status page. Hidden monitors are not surfaced.
+ * public status page. Hidden monitors are not surfaced. `userReported`
+ * tells the UI whether the requesting user is among the reporters so it
+ * can pick a different copy for self-reports vs. third-party counts.
  */
-statusRoutes.get('/reports', async (_req, res, next) => {
+statusRoutes.get('/reports', async (req, res, next) => {
   try {
     const repo = getRepository(ProblemReport);
     const rows = await repo.find({
@@ -291,6 +293,15 @@ statusRoutes.get('/reports', async (_req, res, next) => {
     const visibleMonitorIds = new Set(
       uptimeRobotService.getMonitors('public').map((m: MonitorSummary) => m.id)
     );
+
+    let myMonitorIds = new Set<number>();
+    if (req.user) {
+      const mine = await repo.find({
+        where: { resolvedAt: IsNull(), reporter: { id: req.user.id } },
+        select: { monitorId: true },
+      });
+      myMonitorIds = new Set(mine.map((r) => r.monitorId));
+    }
 
     const counts = new Map<number, { name: string; count: number }>();
     for (const r of active) {
@@ -311,6 +322,7 @@ statusRoutes.get('/reports', async (_req, res, next) => {
         monitorId,
         name,
         count,
+        userReported: myMonitorIds.has(monitorId),
       }))
     );
   } catch (e) {

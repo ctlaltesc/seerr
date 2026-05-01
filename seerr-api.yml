@@ -2373,6 +2373,8 @@ paths:
                       type: string
                     count:
                       type: integer
+                    userReported:
+                      type: boolean
     post:
       summary: Submit a problem report
       description: |

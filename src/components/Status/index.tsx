@@ -74,7 +74,8 @@ const messages = defineMessages('components.Status', {
   reportCount:
     '{count, plural, one {# other person is reporting an issue} other {# other people are reporting an issue}}',
   reportCountSelf:
-    '{count, plural, one {You are reporting an issue} other {You and # others are reporting an issue}}',
+    '{count, plural, one {You and # other are reporting an issue} other {You and # others are reporting an issue}}',
+  reportFirst: 'You’re the first to report an issue',
   resolveAll: 'Mark all reports for this service resolved',
   resolveAllSuccess: 'Reports cleared.',
   resolveAllFailed: 'Could not clear reports.',
@@ -127,6 +128,7 @@ interface ReportCount {
   monitorId: number;
   name: string;
   count: number;
+  userReported?: boolean;
 }
 
 const Status = () => {
@@ -517,14 +519,21 @@ const Status = () => {
                           (r) => r.monitorId === monitor.id
                         );
                         if (!report || report.count === 0) return null;
+                        const otherCount =
+                          report.count - (report.userReported ? 1 : 0);
+                        const text = report.userReported
+                          ? otherCount === 0
+                            ? intl.formatMessage(messages.reportFirst)
+                            : intl.formatMessage(messages.reportCountSelf, {
+                                count: otherCount,
+                              })
+                          : intl.formatMessage(messages.reportCount, {
+                              count: report.count,
+                            });
                         return (
                           <div className="mt-2 flex items-center gap-2 text-xs text-yellow-300">
                             <ExclamationTriangleIcon className="h-4 w-4 flex-shrink-0" />
-                            <span>
-                              {intl.formatMessage(messages.reportCount, {
-                                count: report.count,
-                              })}
-                            </span>
+                            <span>{text}</span>
                             {isAdmin && (
                               <button
                                 type="button"
