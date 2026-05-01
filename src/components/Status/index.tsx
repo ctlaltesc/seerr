@@ -35,6 +35,12 @@ const messages = defineMessages('components.Status', {
   monitorDown: 'Down',
   monitorPaused: 'Paused',
   monitorUnknown: 'Unknown',
+  manualOperational: 'Operational',
+  manualMaintenance: 'Scheduled Maintenance',
+  manualDegraded: 'Degraded Performance',
+  manualPartialOutage: 'Partial Outage',
+  manualMajorOutage: 'Major Outage',
+  manualUntil: 'Until {time}',
   notifyMe: 'Notify me when it’s back up',
   notifying: 'Subscribed',
   cancel: 'Cancel notification',
@@ -63,6 +69,8 @@ const messages = defineMessages('components.Status', {
   reportAllAlready:
     'You’ve already reported all the services you selected. The administrator was already notified.',
   reportFailed: 'Could not submit the report.',
+  reportSuppressed:
+    'Problem reports are paused for a planned maintenance window.',
   reportCount:
     '{count, plural, one {# other person is reporting an issue} other {# other people are reporting an issue}}',
   reportCountSelf:
@@ -71,6 +79,13 @@ const messages = defineMessages('components.Status', {
   resolveAllSuccess: 'Reports cleared.',
   resolveAllFailed: 'Could not clear reports.',
 });
+
+type ManualStatus =
+  | 'operational'
+  | 'maintenance'
+  | 'degraded'
+  | 'partial_outage'
+  | 'major_outage';
 
 interface StatusMonitor {
   id: number;
@@ -81,6 +96,9 @@ interface StatusMonitor {
   type: number;
   status: 'up' | 'down' | 'paused' | 'unknown';
   rawStatus: number;
+  manualStatus?: ManualStatus;
+  manualStatusUntil?: number;
+  hideFromReports?: boolean;
 }
 
 export interface StatusResponse {
@@ -89,6 +107,7 @@ export interface StatusResponse {
   monitors: StatusMonitor[];
   subscribedMonitorIds: number[];
   fetchError?: string;
+  reportsSuppressedUntil?: number | null;
 }
 
 export interface UptimerobotPublicSettings {
@@ -196,11 +215,20 @@ const Status = () => {
       setReportModalOpen(false);
       setReportSelection(new Set());
       await revalidateReports();
-    } catch {
-      addToast(intl.formatMessage(messages.reportFailed), {
-        appearance: 'error',
-        autoDismiss: true,
-      });
+    } catch (e) {
+      const suppressed =
+        axios.isAxiosError(e) &&
+        e.response?.status === 409 &&
+        (e.response.data as { suppressed?: boolean } | undefined)?.suppressed;
+      addToast(
+        intl.formatMessage(
+          suppressed ? messages.reportSuppressed : messages.reportFailed
+        ),
+        { appearance: 'error', autoDismiss: true }
+      );
+      if (suppressed) {
+        await revalidate();
+      }
     } finally {
       setReportSubmitting(false);
     }
@@ -287,6 +315,10 @@ const Status = () => {
                 setReportSelection(new Set());
                 setReportModalOpen(true);
               }}
+              disabled={
+                !!data.reportsSuppressedUntil &&
+                data.reportsSuppressedUntil > Date.now()
+              }
               data-testid="status-report-problem"
             >
               <ExclamationTriangleIcon />
@@ -295,6 +327,16 @@ const Status = () => {
           </div>
         )}
       </div>
+
+      {data?.reportsSuppressedUntil &&
+        data.reportsSuppressedUntil > Date.now() && (
+          <div className="mb-4">
+            <Alert
+              type="info"
+              title={intl.formatMessage(messages.reportSuppressed)}
+            />
+          </div>
+        )}
 
       {announcements && announcements.length > 0 && (
         <div className="mb-6">
@@ -379,16 +421,36 @@ const Status = () => {
           <ul className="space-y-3">
             {data.monitors.map((monitor) => {
               const isSubscribed = subscribed.has(monitor.id);
-              const statusColor =
-                monitor.status === 'up'
+              const manualActive =
+                monitor.manualStatus &&
+                monitor.manualStatusUntil &&
+                monitor.manualStatusUntil > Date.now();
+              const statusColor = manualActive
+                ? monitor.manualStatus === 'operational'
+                  ? 'success'
+                  : monitor.manualStatus === 'maintenance'
+                    ? 'warning'
+                    : 'danger'
+                : monitor.status === 'up'
                   ? 'success'
                   : monitor.status === 'down'
                     ? 'danger'
                     : monitor.status === 'paused'
                       ? 'warning'
                       : 'default';
-              const statusLabel =
-                monitor.status === 'up'
+              const statusLabel = manualActive
+                ? intl.formatMessage(
+                    monitor.manualStatus === 'operational'
+                      ? messages.manualOperational
+                      : monitor.manualStatus === 'maintenance'
+                        ? messages.manualMaintenance
+                        : monitor.manualStatus === 'degraded'
+                          ? messages.manualDegraded
+                          : monitor.manualStatus === 'partial_outage'
+                            ? messages.manualPartialOutage
+                            : messages.manualMajorOutage
+                  )
+                : monitor.status === 'up'
                   ? intl.formatMessage(messages.monitorUp)
                   : monitor.status === 'down'
                     ? intl.formatMessage(messages.monitorDown)
@@ -405,13 +467,19 @@ const Status = () => {
                   <div className="flex items-center sm:flex-1">
                     <div
                       className={`mr-4 h-4 w-4 flex-shrink-0 rounded-full ${
-                        monitor.status === 'up'
-                          ? 'bg-green-500'
-                          : monitor.status === 'down'
-                            ? 'animate-pulse bg-red-500'
-                            : monitor.status === 'paused'
+                        manualActive
+                          ? monitor.manualStatus === 'operational'
+                            ? 'bg-green-500'
+                            : monitor.manualStatus === 'maintenance'
                               ? 'bg-yellow-500'
-                              : 'bg-gray-500'
+                              : 'animate-pulse bg-red-500'
+                          : monitor.status === 'up'
+                            ? 'bg-green-500'
+                            : monitor.status === 'down'
+                              ? 'animate-pulse bg-red-500'
+                              : monitor.status === 'paused'
+                                ? 'bg-yellow-500'
+                                : 'bg-gray-500'
                       }`}
                       aria-hidden
                     />
@@ -419,6 +487,16 @@ const Status = () => {
                       <div className="truncate text-lg font-semibold text-white">
                         {monitor.name}
                       </div>
+                      {manualActive && monitor.manualStatusUntil && (
+                        <div className="mt-1 text-xs uppercase tracking-wide text-gray-400">
+                          {intl.formatMessage(messages.manualUntil, {
+                            time: intl.formatTime(
+                              new Date(monitor.manualStatusUntil),
+                              { timeStyle: 'short' }
+                            ),
+                          })}
+                        </div>
+                      )}
                       {monitor.description && (
                         <div className="mt-1 text-sm text-gray-300">
                           {monitor.description}
@@ -534,37 +612,45 @@ const Status = () => {
           <p className="mb-4 text-sm text-gray-300">
             {intl.formatMessage(messages.reportDescription)}
           </p>
-          {data?.monitors.length ? (
-            <ul className="space-y-2">
-              {data.monitors.map((monitor) => {
-                const isChecked = reportSelection.has(monitor.id);
-                return (
-                  <li key={monitor.id}>
-                    <label
-                      htmlFor={`report-monitor-${monitor.id}`}
-                      className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm text-white transition duration-150 ${
-                        isChecked
-                          ? 'border-indigo-500 bg-indigo-600/20'
-                          : 'border-gray-700 bg-gray-800/60 hover:border-gray-500 hover:bg-gray-700/60'
-                      }`}
-                    >
-                      <input
-                        id={`report-monitor-${monitor.id}`}
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleReportSelection(monitor.id)}
-                      />
-                      <span className="truncate">{monitor.name}</span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="text-sm text-gray-400">
-              {intl.formatMessage(messages.noMonitors)}
-            </p>
-          )}
+          {(() => {
+            const reportable = (data?.monitors ?? []).filter(
+              (m) => !m.hideFromReports
+            );
+            if (!reportable.length) {
+              return (
+                <p className="text-sm text-gray-400">
+                  {intl.formatMessage(messages.noMonitors)}
+                </p>
+              );
+            }
+            return (
+              <ul className="space-y-2">
+                {reportable.map((monitor) => {
+                  const isChecked = reportSelection.has(monitor.id);
+                  return (
+                    <li key={monitor.id}>
+                      <label
+                        htmlFor={`report-monitor-${monitor.id}`}
+                        className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm text-white transition duration-150 ${
+                          isChecked
+                            ? 'border-indigo-500 bg-indigo-600/20'
+                            : 'border-gray-700 bg-gray-800/60 hover:border-gray-500 hover:bg-gray-700/60'
+                        }`}
+                      >
+                        <input
+                          id={`report-monitor-${monitor.id}`}
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleReportSelection(monitor.id)}
+                        />
+                        <span className="truncate">{monitor.name}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            );
+          })()}
         </Modal>
       </Transition>
     </>

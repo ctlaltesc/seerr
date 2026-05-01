@@ -118,6 +118,21 @@ export interface MetadataSettings {
   anime: MetadataProviderType;
 }
 
+export type UptimeRobotManualStatus =
+  | 'operational'
+  | 'maintenance'
+  | 'degraded'
+  | 'partial_outage'
+  | 'major_outage';
+
+export const UPTIMEROBOT_MANUAL_STATUSES: UptimeRobotManualStatus[] = [
+  'operational',
+  'maintenance',
+  'degraded',
+  'partial_outage',
+  'major_outage',
+];
+
 export interface UptimeRobotMonitorOverride {
   /** UptimeRobot monitor id this override applies to. */
   id: number;
@@ -129,6 +144,15 @@ export interface UptimeRobotMonitorOverride {
   hideUrl?: boolean;
   /** When true, the monitor is omitted entirely from public-facing surfaces. */
   hidden?: boolean;
+  /**
+   * Admin-supplied status that overrides UptimeRobot's reported status until
+   * `manualStatusUntil` elapses. Auto-clears once expired.
+   */
+  manualStatus?: UptimeRobotManualStatus;
+  /** Epoch ms after which the manual status is ignored. */
+  manualStatusUntil?: number;
+  /** When true, the monitor is hidden from the user-facing report-a-problem modal. */
+  hideFromReports?: boolean;
 }
 
 export interface UptimeRobotSettings {
@@ -157,15 +181,12 @@ export interface UptimeRobotSettings {
    */
   pollIntervalSeconds: number;
   /**
-   * When true, every admin with an active web-push subscription is pinged
-   * the moment a user files a Report-a-Problem submission.
+   * Epoch ms timestamp until which Report-a-Problem submissions are
+   * suppressed (set by an admin's broadcast that ticked the
+   * "suppress reports" option, used to prevent users firing reports
+   * during a planned maintenance window).
    */
-  notifyAdminOnReportWebPush: boolean;
-  /**
-   * When true, every admin with a Telegram chat id configured is pinged
-   * via the global Telegram bot the moment a user files a problem report.
-   */
-  notifyAdminOnReportTelegram: boolean;
+  reportsSuppressedUntil?: number;
 }
 
 export interface ProxySettings {
@@ -512,8 +533,6 @@ class Settings {
         recoveryNotificationsEnabled: true,
         recoveryStableMinutes: 10,
         pollIntervalSeconds: 60,
-        notifyAdminOnReportWebPush: true,
-        notifyAdminOnReportTelegram: false,
       },
       radarr: [],
       sonarr: [],

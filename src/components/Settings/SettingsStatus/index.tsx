@@ -28,12 +28,6 @@ const messages = defineMessages('components.Settings.SettingsStatus', {
   recoveryEnabled: 'Recovery Notifications',
   recoveryEnabledTip:
     'Push a notification to users who tapped "Notify me when it’s back up" once a downed monitor stays online for the configured stable window',
-  notifyAdminWebPush: 'Notify admins via web push when problems are reported',
-  notifyAdminWebPushTip:
-    'When a user submits a Report-a-Problem from the status page, every admin with an active push subscription is alerted.',
-  notifyAdminTelegram: 'Notify admins via Telegram when problems are reported',
-  notifyAdminTelegramTip:
-    'Each admin with a Telegram chat id configured (in their user notification settings) is messaged via the global Telegram bot. Falls back to the system chat id when an admin has not set their own.',
   stableMinutes: 'Stable Window (minutes)',
   stableMinutesTip:
     'How long a monitor must continuously stay online after recovery before notifications fire. Default 10 minutes.',
@@ -55,12 +49,22 @@ const messages = defineMessages('components.Settings.SettingsStatus', {
   validationApiKey: 'API key is required when enabled.',
 });
 
+type ManualStatus =
+  | 'operational'
+  | 'maintenance'
+  | 'degraded'
+  | 'partial_outage'
+  | 'major_outage';
+
 interface MonitorOverride {
   id: number;
   name?: string;
   description?: string;
   hideUrl?: boolean;
   hidden?: boolean;
+  hideFromReports?: boolean;
+  manualStatus?: ManualStatus;
+  manualStatusUntil?: number;
 }
 
 interface SettingsResponse {
@@ -72,8 +76,6 @@ interface SettingsResponse {
   recoveryNotificationsEnabled: boolean;
   recoveryStableMinutes: number;
   pollIntervalSeconds: number;
-  notifyAdminOnReportWebPush: boolean;
-  notifyAdminOnReportTelegram: boolean;
 }
 
 interface MonitorPreview {
@@ -133,6 +135,9 @@ const SettingsStatus = () => {
           description: o.description ?? '',
           hideUrl: !!o.hideUrl,
           hidden: !!o.hidden,
+          hideFromReports: !!o.hideFromReports,
+          manualStatus: o.manualStatus,
+          manualStatusUntil: o.manualStatusUntil,
         };
       }
     }
@@ -183,6 +188,47 @@ const SettingsStatus = () => {
     }));
   };
 
+  const handleHideFromReportsChange = (
+    id: number,
+    hideFromReports: boolean
+  ) => {
+    setOverrides((current) => ({
+      ...current,
+      [id]: { ...(current[id] ?? { id }), id, hideFromReports },
+    }));
+  };
+
+  const handleManualStatusChange = (
+    id: number,
+    status: ManualStatus | undefined,
+    minutes: number
+  ) => {
+    setOverrides((current) => {
+      const existing = current[id] ?? { id };
+      if (!status) {
+        return {
+          ...current,
+          [id]: {
+            ...existing,
+            id,
+            manualStatus: undefined,
+            manualStatusUntil: undefined,
+          },
+        };
+      }
+      const safeMinutes = Math.max(1, Math.min(1440, Math.round(minutes) || 1));
+      return {
+        ...current,
+        [id]: {
+          ...existing,
+          id,
+          manualStatus: status,
+          manualStatusUntil: Date.now() + safeMinutes * 60_000,
+        },
+      };
+    });
+  };
+
   if (!data && !error) return <LoadingSpinner />;
   if (!data) return null;
 
@@ -221,22 +267,40 @@ const SettingsStatus = () => {
           recoveryNotificationsEnabled: data.recoveryNotificationsEnabled,
           recoveryStableMinutes: data.recoveryStableMinutes,
           pollIntervalSeconds: data.pollIntervalSeconds,
-          notifyAdminOnReportWebPush: data.notifyAdminOnReportWebPush,
-          notifyAdminOnReportTelegram: data.notifyAdminOnReportTelegram,
         }}
         enableReinitialize
         validationSchema={SettingsSchema}
         onSubmit={async (values) => {
           try {
+            const now = Date.now();
             const cleanedOverrides = Object.values(overrides)
-              .map((o) => ({
-                id: o.id,
-                name: o.name?.trim() || undefined,
-                description: o.description?.trim() || undefined,
-                hideUrl: o.hideUrl ? true : undefined,
-                hidden: o.hidden ? true : undefined,
-              }))
-              .filter((o) => o.name || o.description || o.hideUrl || o.hidden);
+              .map((o) => {
+                const manualActive =
+                  o.manualStatus &&
+                  typeof o.manualStatusUntil === 'number' &&
+                  o.manualStatusUntil > now;
+                return {
+                  id: o.id,
+                  name: o.name?.trim() || undefined,
+                  description: o.description?.trim() || undefined,
+                  hideUrl: o.hideUrl ? true : undefined,
+                  hidden: o.hidden ? true : undefined,
+                  hideFromReports: o.hideFromReports ? true : undefined,
+                  manualStatus: manualActive ? o.manualStatus : undefined,
+                  manualStatusUntil: manualActive
+                    ? o.manualStatusUntil
+                    : undefined,
+                };
+              })
+              .filter(
+                (o) =>
+                  o.name ||
+                  o.description ||
+                  o.hideUrl ||
+                  o.hidden ||
+                  o.hideFromReports ||
+                  o.manualStatus
+              );
 
             const payload: Partial<SettingsResponse> & { apiKey?: string } = {
               enabled: values.enabled,
@@ -245,8 +309,6 @@ const SettingsStatus = () => {
               pollIntervalSeconds: Number(values.pollIntervalSeconds) || 60,
               monitorOrder: orderedIds,
               monitorOverrides: cleanedOverrides,
-              notifyAdminOnReportWebPush: values.notifyAdminOnReportWebPush,
-              notifyAdminOnReportTelegram: values.notifyAdminOnReportTelegram,
             };
             if (values.apiKey) payload.apiKey = values.apiKey;
 
@@ -374,44 +436,6 @@ const SettingsStatus = () => {
             </div>
 
             <div className="form-row">
-              <label
-                htmlFor="notifyAdminOnReportWebPush"
-                className="checkbox-label"
-              >
-                {intl.formatMessage(messages.notifyAdminWebPush)}
-                <span className="label-tip">
-                  {intl.formatMessage(messages.notifyAdminWebPushTip)}
-                </span>
-              </label>
-              <div className="form-input-area">
-                <Field
-                  type="checkbox"
-                  id="notifyAdminOnReportWebPush"
-                  name="notifyAdminOnReportWebPush"
-                />
-              </div>
-            </div>
-
-            <div className="form-row">
-              <label
-                htmlFor="notifyAdminOnReportTelegram"
-                className="checkbox-label"
-              >
-                {intl.formatMessage(messages.notifyAdminTelegram)}
-                <span className="label-tip">
-                  {intl.formatMessage(messages.notifyAdminTelegramTip)}
-                </span>
-              </label>
-              <div className="form-input-area">
-                <Field
-                  type="checkbox"
-                  id="notifyAdminOnReportTelegram"
-                  name="notifyAdminOnReportTelegram"
-                />
-              </div>
-            </div>
-
-            <div className="form-row">
               <label htmlFor="recoveryStableMinutes" className="text-label">
                 {intl.formatMessage(messages.stableMinutes)}
                 <span className="label-tip">
@@ -487,11 +511,18 @@ const SettingsStatus = () => {
                               description: override?.description ?? '',
                               hideUrl: !!override?.hideUrl,
                               hidden: !!override?.hidden,
+                              hideFromReports: !!override?.hideFromReports,
+                              manualStatus: override?.manualStatus,
+                              manualStatusUntil: override?.manualStatusUntil,
                             }}
                             onNameChange={handleNameChange}
                             onDescriptionChange={handleDescriptionChange}
                             onHideUrlChange={handleHideUrlChange}
                             onHiddenChange={handleHiddenChange}
+                            onHideFromReportsChange={
+                              handleHideFromReportsChange
+                            }
+                            onManualStatusChange={handleManualStatusChange}
                             onMove={handleMove}
                           />
                         );
