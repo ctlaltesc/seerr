@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateUserMonitorRecoverySubscriptions1777200000000
-  implements MigrationInterface
-{
+export class CreateUserMonitorRecoverySubscriptions1777200000000 implements MigrationInterface {
   name = 'CreateUserMonitorRecoverySubscriptions1777200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

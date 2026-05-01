@@ -14,6 +14,7 @@ import RecentRequestsSlider from '@app/components/Discover/RecentRequestsSlider'
 import StudioSlider from '@app/components/Discover/StudioSlider';
 import TvGenreSlider from '@app/components/Discover/TvGenreSlider';
 import MediaSlider from '@app/components/MediaSlider';
+import StatusBanner from '@app/components/StatusBanner';
 import { encodeURIExtraParams } from '@app/hooks/useDiscover';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
@@ -123,6 +124,7 @@ const Discover = () => {
   return (
     <>
       <PageTitle title={intl.formatMessage(messages.discover)} />
+      <StatusBanner />
       {hasPermission(Permission.ADMIN) && (
         <>
           {isEditing && (
