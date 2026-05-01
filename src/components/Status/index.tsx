@@ -535,23 +535,30 @@ const Status = () => {
             {intl.formatMessage(messages.reportDescription)}
           </p>
           {data?.monitors.length ? (
-            <ul className="space-y-1">
-              {data.monitors.map((monitor) => (
-                <li key={monitor.id}>
-                  <label
-                    htmlFor={`report-monitor-${monitor.id}`}
-                    className="flex cursor-pointer items-center gap-3 rounded-md border border-gray-700 bg-gray-800/60 px-3 py-2 text-sm text-white transition hover:bg-gray-700/60"
-                  >
-                    <input
-                      id={`report-monitor-${monitor.id}`}
-                      type="checkbox"
-                      checked={reportSelection.has(monitor.id)}
-                      onChange={() => toggleReportSelection(monitor.id)}
-                    />
-                    <span className="truncate">{monitor.name}</span>
-                  </label>
-                </li>
-              ))}
+            <ul className="space-y-2">
+              {data.monitors.map((monitor) => {
+                const isChecked = reportSelection.has(monitor.id);
+                return (
+                  <li key={monitor.id}>
+                    <label
+                      htmlFor={`report-monitor-${monitor.id}`}
+                      className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm text-white transition duration-150 ${
+                        isChecked
+                          ? 'border-indigo-500 bg-indigo-600/20'
+                          : 'border-gray-700 bg-gray-800/60 hover:border-gray-500 hover:bg-gray-700/60'
+                      }`}
+                    >
+                      <input
+                        id={`report-monitor-${monitor.id}`}
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleReportSelection(monitor.id)}
+                      />
+                      <span className="truncate">{monitor.name}</span>
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="text-sm text-gray-400">
