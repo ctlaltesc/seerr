@@ -92,8 +92,13 @@ const StatusBanner = () => {
                     <div className="truncate text-sm font-medium text-white">
                       {monitor.name}
                     </div>
+                    {monitor.description && (
+                      <div className="text-xs text-red-100/90">
+                        {monitor.description}
+                      </div>
+                    )}
                     {monitor.url && (
-                      <div className="truncate text-xs text-red-200/70">
+                      <div className="truncate text-xs text-red-200/60">
                         {monitor.url}
                       </div>
                     )}

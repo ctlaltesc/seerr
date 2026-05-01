@@ -12,7 +12,12 @@ import webpush from 'web-push';
 
 export interface MonitorSummary {
   id: number;
+  /** Display name — admin override if set, otherwise UptimeRobot's friendly_name. */
   name: string;
+  /** UptimeRobot's friendly_name, untouched. Useful for the admin UI. */
+  defaultName: string;
+  /** Optional description set by the admin. */
+  description?: string;
   url: string;
   type: number;
   /** Normalised status: 'up' | 'down' | 'paused' | 'unknown'. */
@@ -51,23 +56,46 @@ class UptimeRobotService {
   /**
    * Returns the most recently fetched monitor list, ordered according to
    * the admin's configured `monitorOrder` (with any unranked monitors
-   * appended at the end in their API order).
+   * appended at the end in their API order) and with admin overrides
+   * (display name + description) applied.
    */
   public getMonitors(): MonitorSummary[] {
-    const order = getSettings().uptimerobot.monitorOrder;
-    if (!order.length) return this.latest.slice();
+    const settings = getSettings().uptimerobot;
+    const overrideById = new Map<
+      number,
+      { name?: string; description?: string }
+    >();
+    for (const override of settings.monitorOverrides ?? []) {
+      if (Number.isFinite(override.id)) {
+        overrideById.set(override.id, {
+          name: override.name,
+          description: override.description,
+        });
+      }
+    }
+
+    const enriched = this.latest.map((m) => {
+      const override = overrideById.get(m.id);
+      return {
+        ...m,
+        name: override?.name?.trim() || m.defaultName,
+        description: override?.description?.trim() || undefined,
+      };
+    });
+
+    const order = settings.monitorOrder ?? [];
+    if (!order.length) return enriched;
 
     const indexById = new Map<number, number>();
     order.forEach((id, idx) => indexById.set(id, idx));
 
-    const sorted = this.latest.slice();
-    sorted.sort((a, b) => {
+    enriched.sort((a, b) => {
       const ai = indexById.has(a.id) ? indexById.get(a.id)! : Infinity;
       const bi = indexById.has(b.id) ? indexById.get(b.id)! : Infinity;
       if (ai !== bi) return ai - bi;
       return a.name.localeCompare(b.name);
     });
-    return sorted;
+    return enriched;
   }
 
   public getStatus() {
@@ -115,6 +143,7 @@ class UptimeRobotService {
       const summaries: MonitorSummary[] = monitors.map((m) => ({
         id: m.id,
         name: m.friendly_name,
+        defaultName: m.friendly_name,
         url: m.url,
         type: m.type,
         status: normalizeStatus(m.status),
