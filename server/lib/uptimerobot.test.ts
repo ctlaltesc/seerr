@@ -52,6 +52,7 @@ beforeEach(() => {
     enabled: true,
     apiKey: 'fake-test-key',
     monitorOrder: [],
+    monitorOverrides: [],
     recoveryNotificationsEnabled: true,
     recoveryStableMinutes: 10,
     pollIntervalSeconds: 60,
@@ -125,6 +126,29 @@ describe('UptimeRobotService', () => {
     assert.strictEqual(cached.length, 1);
     assert.strictEqual(cached[0].name, 'Edge');
     assert.strictEqual(cached[0].status, 'up');
+  });
+
+  it('applies admin overrides for monitor name and description', async () => {
+    mockMonitorsOnce([
+      fakeMonitor(42, 'raw-name', UPTIMEROBOT_STATUS.UP),
+      fakeMonitor(43, 'unchanged', UPTIMEROBOT_STATUS.UP),
+    ]);
+    await uptimeRobotService.poll();
+
+    getSettings().uptimerobot.monitorOverrides = [
+      { id: 42, name: '  Custom Name  ', description: '  Important service  ' },
+      { id: 99, name: 'orphan' }, // for a monitor that doesn't exist
+    ];
+
+    const monitors = uptimeRobotService.getMonitors();
+    const overridden = monitors.find((m) => m.id === 42);
+    const untouched = monitors.find((m) => m.id === 43);
+
+    assert.strictEqual(overridden?.name, 'Custom Name');
+    assert.strictEqual(overridden?.defaultName, 'raw-name');
+    assert.strictEqual(overridden?.description, 'Important service');
+    assert.strictEqual(untouched?.name, 'unchanged');
+    assert.strictEqual(untouched?.description, undefined);
   });
 
   it('respects the admin-configured monitor order', async () => {

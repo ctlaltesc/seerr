@@ -1,20 +1,15 @@
 import Alert from '@app/components/Common/Alert';
-import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import SensitiveInput from '@app/components/Common/SensitiveInput';
+import MonitorRow from '@app/components/Settings/SettingsStatus/MonitorRow';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
-import {
-  ArrowDownIcon,
-  ArrowDownOnSquareIcon,
-  ArrowUpIcon,
-  BeakerIcon,
-} from '@heroicons/react/24/outline';
+import { ArrowDownOnSquareIcon, BeakerIcon } from '@heroicons/react/24/outline';
 import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
@@ -39,9 +34,9 @@ const messages = defineMessages('components.Settings.SettingsStatus', {
   pollSeconds: 'Poll Interval (seconds)',
   pollSecondsTip:
     'How frequently the server polls UptimeRobot. Minimum 30 seconds. Default 60.',
-  monitorOrder: 'Monitor Order',
+  monitorOrder: 'Monitors',
   monitorOrderTip:
-    'Drag the arrows to reorder how monitors appear on the status page. New monitors are appended to the end automatically.',
+    'Drag a monitor by its handle to reorder it. Edit the name to override the label users see, and add a short description to give context. Leave a field blank to keep the UptimeRobot default.',
   noMonitors:
     'No monitors found. Save the API key first, or check that your UptimeRobot account has monitors configured.',
   testKey: 'Test Key',
@@ -52,15 +47,20 @@ const messages = defineMessages('components.Settings.SettingsStatus', {
   saveSuccess: 'Status settings saved.',
   saveFailed: 'Failed to save status settings.',
   validationApiKey: 'API key is required when enabled.',
-  moveUp: 'Move up',
-  moveDown: 'Move down',
 });
+
+interface MonitorOverride {
+  id: number;
+  name?: string;
+  description?: string;
+}
 
 interface SettingsResponse {
   enabled: boolean;
   apiKey: string;
   apiKeySet: boolean;
   monitorOrder: number[];
+  monitorOverrides: MonitorOverride[];
   recoveryNotificationsEnabled: boolean;
   recoveryStableMinutes: number;
   pollIntervalSeconds: number;
@@ -92,36 +92,73 @@ const SettingsStatus = () => {
   );
 
   const [orderedIds, setOrderedIds] = useState<number[]>([]);
-  const monitorsById = new Map<number, MonitorPreview>();
-  (monitorList ?? []).forEach((m) => monitorsById.set(m.id, m));
+  const [overrides, setOverrides] = useState<Record<number, MonitorOverride>>(
+    {}
+  );
+
+  const monitorsById = useMemo(() => {
+    const map = new Map<number, MonitorPreview>();
+    (monitorList ?? []).forEach((m) => map.set(m.id, m));
+    return map;
+  }, [monitorList]);
 
   useEffect(() => {
     if (!data || !monitorList) return;
     const knownIds = new Set(monitorList.map((m) => m.id));
-    // Start from the saved order, dropping monitors that no longer exist.
+
+    // Order: saved order minus deleted monitors, then any new monitors.
     const ordered = data.monitorOrder.filter((id) => knownIds.has(id));
-    // Append any new monitors that aren't in the saved order.
     monitorList.forEach((m) => {
       if (!ordered.includes(m.id)) ordered.push(m.id);
     });
     setOrderedIds(ordered);
+
+    // Overrides: drop entries for monitors that no longer exist.
+    const next: Record<number, MonitorOverride> = {};
+    for (const o of data.monitorOverrides ?? []) {
+      if (knownIds.has(o.id)) {
+        next[o.id] = {
+          id: o.id,
+          name: o.name ?? '',
+          description: o.description ?? '',
+        };
+      }
+    }
+    setOverrides(next);
   }, [data, monitorList]);
 
-  const move = (index: number, direction: -1 | 1) => {
-    const next = [...orderedIds];
-    const target = index + direction;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
-    setOrderedIds(next);
+  const handleMove = (
+    draggedId: number,
+    targetId: number,
+    position: 'Above' | 'Below'
+  ) => {
+    if (draggedId === targetId) return;
+    setOrderedIds((current) => {
+      const next = current.filter((id) => id !== draggedId);
+      const targetIndex = next.indexOf(targetId);
+      if (targetIndex === -1) return current;
+      const insertAt = position === 'Above' ? targetIndex : targetIndex + 1;
+      next.splice(insertAt, 0, draggedId);
+      return next;
+    });
   };
 
-  if (!data && !error) {
-    return <LoadingSpinner />;
-  }
+  const handleNameChange = (id: number, name: string) => {
+    setOverrides((current) => ({
+      ...current,
+      [id]: { ...(current[id] ?? { id }), id, name },
+    }));
+  };
 
-  if (!data) {
-    return null;
-  }
+  const handleDescriptionChange = (id: number, description: string) => {
+    setOverrides((current) => ({
+      ...current,
+      [id]: { ...(current[id] ?? { id }), id, description },
+    }));
+  };
+
+  if (!data && !error) return <LoadingSpinner />;
+  if (!data) return null;
 
   const SettingsSchema = Yup.object().shape({
     apiKey: Yup.string().when('enabled', {
@@ -163,18 +200,24 @@ const SettingsStatus = () => {
         validationSchema={SettingsSchema}
         onSubmit={async (values) => {
           try {
-            const payload: Partial<SettingsResponse> = {
+            const cleanedOverrides = Object.values(overrides)
+              .map((o) => ({
+                id: o.id,
+                name: o.name?.trim() || undefined,
+                description: o.description?.trim() || undefined,
+              }))
+              .filter((o) => o.name || o.description);
+
+            const payload: Partial<SettingsResponse> & { apiKey?: string } = {
               enabled: values.enabled,
               recoveryNotificationsEnabled: values.recoveryNotificationsEnabled,
               recoveryStableMinutes: Number(values.recoveryStableMinutes) || 10,
               pollIntervalSeconds: Number(values.pollIntervalSeconds) || 60,
               monitorOrder: orderedIds,
+              monitorOverrides: cleanedOverrides,
             };
-            // Only send apiKey when the admin actually changed it; the
-            // server treats `undefined` as "leave existing key alone."
-            if (values.apiKey) {
-              (payload as { apiKey: string }).apiKey = values.apiKey;
-            }
+            if (values.apiKey) payload.apiKey = values.apiKey;
+
             await axios.post('/api/v1/settings/uptimerobot', payload);
             await mutate();
             await mutateMonitors();
@@ -357,84 +400,29 @@ const SettingsStatus = () => {
                       title={intl.formatMessage(messages.noMonitors)}
                     />
                   ) : (
-                    <ul className="divide-y divide-gray-700 overflow-hidden rounded-md border border-gray-700 bg-gray-800/50">
-                      {orderedIds.map((id, index) => {
+                    <div className="space-y-2">
+                      {orderedIds.map((id) => {
                         const monitor = monitorsById.get(id);
                         if (!monitor) return null;
-                        const statusBadge = ((): {
-                          type: 'success' | 'danger' | 'warning' | 'default';
-                          label: string;
-                        } => {
-                          const raw =
-                            typeof monitor.status === 'string'
-                              ? monitor.status.toLowerCase()
-                              : monitor.status === 2
-                                ? 'up'
-                                : monitor.status === 8 || monitor.status === 9
-                                  ? 'down'
-                                  : monitor.status === 0
-                                    ? 'paused'
-                                    : 'unknown';
-                          if (raw === 'up' || raw === 'ok')
-                            return { type: 'success', label: 'Up' };
-                          if (raw === 'down' || raw === 'seems_down')
-                            return { type: 'danger', label: 'Down' };
-                          if (raw === 'paused')
-                            return { type: 'warning', label: 'Paused' };
-                          return { type: 'default', label: 'Unknown' };
-                        })();
+                        const override = overrides[id];
                         return (
-                          <li
+                          <MonitorRow
                             key={id}
-                            className="flex items-center px-4 py-2"
-                            data-testid={`monitor-row-${id}`}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-medium text-white">
-                                {monitor.name}
-                              </div>
-                              {monitor.url && (
-                                <div className="truncate text-xs text-gray-400">
-                                  {monitor.url}
-                                </div>
-                              )}
-                            </div>
-                            <Badge
-                              badgeType={statusBadge.type}
-                              className="ml-2"
-                            >
-                              {statusBadge.label}
-                            </Badge>
-                            <div className="ml-3 flex space-x-1">
-                              <Button
-                                buttonType="default"
-                                buttonSize="sm"
-                                type="button"
-                                disabled={index === 0}
-                                onClick={() => move(index, -1)}
-                                aria-label={intl.formatMessage(messages.moveUp)}
-                                title={intl.formatMessage(messages.moveUp)}
-                              >
-                                <ArrowUpIcon className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                buttonType="default"
-                                buttonSize="sm"
-                                type="button"
-                                disabled={index === orderedIds.length - 1}
-                                onClick={() => move(index, 1)}
-                                aria-label={intl.formatMessage(
-                                  messages.moveDown
-                                )}
-                                title={intl.formatMessage(messages.moveDown)}
-                              >
-                                <ArrowDownIcon className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </li>
+                            monitor={{
+                              id: monitor.id,
+                              defaultName: monitor.name,
+                              url: monitor.url,
+                              status: monitor.status,
+                              name: override?.name ?? '',
+                              description: override?.description ?? '',
+                            }}
+                            onNameChange={handleNameChange}
+                            onDescriptionChange={handleDescriptionChange}
+                            onMove={handleMove}
+                          />
                         );
                       })}
-                    </ul>
+                    </div>
                   )}
                 </div>
               </div>

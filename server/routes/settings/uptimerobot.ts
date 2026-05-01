@@ -1,5 +1,9 @@
 import type { UptimeRobotMonitor } from '@server/api/uptimerobot';
-import { getSettings, type UptimeRobotSettings } from '@server/lib/settings';
+import {
+  getSettings,
+  type UptimeRobotMonitorOverride,
+  type UptimeRobotSettings,
+} from '@server/lib/settings';
 import uptimeRobotService from '@server/lib/uptimerobot';
 import logger from '@server/logger';
 import { Router } from 'express';
@@ -11,10 +15,41 @@ const filterPublicSettings = (settings: UptimeRobotSettings) => ({
   apiKey: settings.apiKey ? '••••••••' : '',
   apiKeySet: !!settings.apiKey,
   monitorOrder: settings.monitorOrder,
+  monitorOverrides: settings.monitorOverrides ?? [],
   recoveryNotificationsEnabled: settings.recoveryNotificationsEnabled,
   recoveryStableMinutes: settings.recoveryStableMinutes,
   pollIntervalSeconds: settings.pollIntervalSeconds,
 });
+
+/**
+ * Coerce user-supplied monitorOverrides into a clean array. Each entry must
+ * carry a numeric id; name and description are trimmed and length-capped,
+ * empty entries (no name and no description) are dropped, and an id is
+ * only kept once (last write wins).
+ */
+function sanitizeOverrides(raw: unknown): UptimeRobotMonitorOverride[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Map<number, UptimeRobotMonitorOverride>();
+  for (const value of raw) {
+    if (!value || typeof value !== 'object') continue;
+    const v = value as Partial<UptimeRobotMonitorOverride>;
+    const id = Number(v.id);
+    if (!Number.isFinite(id)) continue;
+    const entry: UptimeRobotMonitorOverride = { id };
+    if (typeof v.name === 'string') {
+      const name = v.name.trim().slice(0, 80);
+      if (name) entry.name = name;
+    }
+    if (typeof v.description === 'string') {
+      const description = v.description.trim().slice(0, 240);
+      if (description) entry.description = description;
+    }
+    if (entry.name || entry.description) {
+      seen.set(id, entry);
+    }
+  }
+  return [...seen.values()];
+}
 
 uptimeRobotRoutes.get('/', (_req, res) => {
   const settings = getSettings();
@@ -42,6 +77,10 @@ uptimeRobotRoutes.post<
             .map((id) => Number(id))
             .filter((id) => Number.isFinite(id))
         : current.monitorOrder,
+      monitorOverrides:
+        req.body.monitorOverrides === undefined
+          ? (current.monitorOverrides ?? {})
+          : sanitizeOverrides(req.body.monitorOverrides),
       recoveryNotificationsEnabled:
         req.body.recoveryNotificationsEnabled ??
         current.recoveryNotificationsEnabled,

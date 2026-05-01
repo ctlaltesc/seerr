@@ -118,6 +118,15 @@ export interface MetadataSettings {
   anime: MetadataProviderType;
 }
 
+export interface UptimeRobotMonitorOverride {
+  /** UptimeRobot monitor id this override applies to. */
+  id: number;
+  /** Custom display name. Falls back to UptimeRobot's friendly_name. */
+  name?: string;
+  /** Short description shown next to the monitor on the status page. */
+  description?: string;
+}
+
 export interface UptimeRobotSettings {
   enabled: boolean;
   apiKey: string;
@@ -127,6 +136,12 @@ export interface UptimeRobotSettings {
    * the order returned by the UptimeRobot API.
    */
   monitorOrder: number[];
+  /**
+   * Per-monitor overrides. Stored as an array (rather than a keyed object)
+   * so the settings merger's array-replacement behaviour cleanly drops
+   * stale entries.
+   */
+  monitorOverrides: UptimeRobotMonitorOverride[];
   recoveryNotificationsEnabled: boolean;
   /**
    * How long (in minutes) a monitor must continuously stay UP after recovery
@@ -479,6 +494,7 @@ class Settings {
         enabled: false,
         apiKey: '',
         monitorOrder: [],
+        monitorOverrides: [],
         recoveryNotificationsEnabled: true,
         recoveryStableMinutes: 10,
         pollIntervalSeconds: 60,

@@ -41,6 +41,8 @@ const messages = defineMessages('components.Status', {
 interface StatusMonitor {
   id: number;
   name: string;
+  defaultName?: string;
+  description?: string;
   url: string;
   type: number;
   status: 'up' | 'down' | 'paused' | 'unknown';
@@ -184,12 +186,17 @@ const Status = () => {
                       <div className="truncate text-sm font-semibold text-white">
                         {monitor.name}
                       </div>
+                      {monitor.description && (
+                        <div className="text-xs text-gray-300">
+                          {monitor.description}
+                        </div>
+                      )}
                       {monitor.url && (
                         <a
                           href={monitor.url}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="truncate text-xs text-gray-400 transition hover:text-indigo-400 hover:underline"
+                          className="block truncate text-xs text-gray-500 transition hover:text-indigo-400 hover:underline"
                         >
                           {monitor.url}
                         </a>
