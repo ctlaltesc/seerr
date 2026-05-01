@@ -19,6 +19,8 @@ const filterPublicSettings = (settings: UptimeRobotSettings) => ({
   recoveryNotificationsEnabled: settings.recoveryNotificationsEnabled,
   recoveryStableMinutes: settings.recoveryStableMinutes,
   pollIntervalSeconds: settings.pollIntervalSeconds,
+  notifyAdminOnReportWebPush: settings.notifyAdminOnReportWebPush,
+  notifyAdminOnReportTelegram: settings.notifyAdminOnReportTelegram,
 });
 
 /**
@@ -103,6 +105,12 @@ uptimeRobotRoutes.post<
             60
         )
       ),
+      notifyAdminOnReportWebPush:
+        req.body.notifyAdminOnReportWebPush ??
+        current.notifyAdminOnReportWebPush,
+      notifyAdminOnReportTelegram:
+        req.body.notifyAdminOnReportTelegram ??
+        current.notifyAdminOnReportTelegram,
     };
 
     settings.uptimerobot = next;

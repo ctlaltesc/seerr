@@ -2331,6 +2331,112 @@ paths:
           description: Announcement removed (or did not exist).
         '400':
           description: Invalid announcement id.
+  /uptimerobot/reports:
+    get:
+      summary: List active per-monitor problem report counts
+      description: |
+        Returns the number of unresolved problem reports per visible
+        monitor. Hidden monitors are not surfaced. Reports are also
+        pruned by the auto-resolve rules (24h hard cap; or 24h after
+        the originally-down monitor stays continuously up). Visible to
+        any logged-in user.
+      tags:
+        - uptimerobot
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    monitorId:
+                      type: integer
+                    name:
+                      type: string
+                    count:
+                      type: integer
+    post:
+      summary: Submit a problem report
+      description: |
+        Submits a new problem report covering one or more monitors.
+        Hidden monitors are silently dropped. If the user already has
+        an active report for any of the supplied monitors, those
+        monitors are skipped (no duplicate row, no extra notification).
+      tags:
+        - uptimerobot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monitorIds:
+                  type: array
+                  items:
+                    type: integer
+              required:
+                - monitorIds
+      responses:
+        '200':
+          description: Report accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: integer
+                  alreadyReported:
+                    type: integer
+        '400':
+          description: No valid monitor ids supplied.
+  /uptimerobot/reports/resolve:
+    post:
+      summary: Mark active problem reports resolved
+      description: |
+        Admin-only. Marks every active report resolved. Pass
+        `?monitorId=` to scope the resolve to a single monitor.
+      tags:
+        - uptimerobot
+      parameters:
+        - in: query
+          name: monitorId
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resolved:
+                    type: integer
+        '400':
+          description: Invalid monitor id.
+  /uptimerobot/reports/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+    delete:
+      summary: Resolve a single problem report
+      description: Admin-only. Marks the given report resolved. Idempotent.
+      tags:
+        - uptimerobot
+      responses:
+        '204':
+          description: Report resolved (or did not exist).
+        '400':
+          description: Invalid report id.
   /settings/main:
     get:
       summary: Get main settings
@@ -3138,6 +3244,10 @@ paths:
                     type: integer
                   pollIntervalSeconds:
                     type: integer
+                  notifyAdminOnReportWebPush:
+                    type: boolean
+                  notifyAdminOnReportTelegram:
+                    type: boolean
     post:
       summary: Update UptimeRobot settings
       description: |
@@ -3187,6 +3297,10 @@ paths:
                   type: integer
                   minimum: 30
                   maximum: 3600
+                notifyAdminOnReportWebPush:
+                  type: boolean
+                notifyAdminOnReportTelegram:
+                  type: boolean
       responses:
         '200':
           description: Settings saved

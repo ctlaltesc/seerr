@@ -156,6 +156,16 @@ export interface UptimeRobotSettings {
    * How frequently (in seconds) we poll the UptimeRobot API. Minimum 30s.
    */
   pollIntervalSeconds: number;
+  /**
+   * When true, every admin with an active web-push subscription is pinged
+   * the moment a user files a Report-a-Problem submission.
+   */
+  notifyAdminOnReportWebPush: boolean;
+  /**
+   * When true, every admin with a Telegram chat id configured is pinged
+   * via the global Telegram bot the moment a user files a problem report.
+   */
+  notifyAdminOnReportTelegram: boolean;
 }
 
 export interface ProxySettings {
@@ -502,6 +512,8 @@ class Settings {
         recoveryNotificationsEnabled: true,
         recoveryStableMinutes: 10,
         pollIntervalSeconds: 60,
+        notifyAdminOnReportWebPush: true,
+        notifyAdminOnReportTelegram: false,
       },
       radarr: [],
       sonarr: [],
