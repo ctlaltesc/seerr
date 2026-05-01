@@ -64,6 +64,9 @@ const messages = defineMessages('components.NotificationTypeSelector', {
   mediaautorequested: 'Request Automatically Submitted',
   mediaautorequestedDescription:
     'Get notified when new media requests are automatically submitted for items on Your Watchlist.',
+  problemreported: 'Problem Reported',
+  problemreportedDescription:
+    'Get notified when a user submits a problem report from the status page.',
 });
 
 export const hasNotificationType = (
@@ -106,6 +109,7 @@ export enum Notification {
   ISSUE_RESOLVED = 1024,
   ISSUE_REOPENED = 2048,
   MEDIA_AUTO_REQUESTED = 4096,
+  PROBLEM_REPORTED = 8192,
 }
 
 export const ALL_NOTIFICATIONS = Object.values(Notification)
@@ -354,6 +358,14 @@ const NotificationTypeSelector = ({
           }),
         hasNotifyUser:
           !user || hasPermission(Permission.MANAGE_ISSUES) ? false : true,
+      },
+      {
+        id: 'problem-reported',
+        name: intl.formatMessage(messages.problemreported),
+        description: intl.formatMessage(messages.problemreportedDescription),
+        value: Notification.PROBLEM_REPORTED,
+        hidden: user && !hasPermission(Permission.ADMIN),
+        hasNotifyUser: false,
       },
     ];
 

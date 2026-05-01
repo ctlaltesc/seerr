@@ -3,6 +3,7 @@ import { Announcement } from '@server/entity/Announcement';
 import { ProblemReport } from '@server/entity/ProblemReport';
 import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecoverySubscription';
 import { Permission } from '@server/lib/permissions';
+import { getSettings } from '@server/lib/settings';
 import uptimeRobotService, {
   type MonitorSummary,
 } from '@server/lib/uptimerobot';
@@ -85,11 +86,18 @@ statusRoutes.get('/', async (req, res, next) => {
       subscribedMonitorIds = subs.map((s) => s.monitorId);
     }
 
+    const suppressUntil = getSettings().uptimerobot.reportsSuppressedUntil;
+    const reportsSuppressedUntil =
+      typeof suppressUntil === 'number' && suppressUntil > Date.now()
+        ? suppressUntil
+        : null;
+
     return res.status(200).json({
       configured: status.configured,
       lastFetched: status.lastFetched,
       monitors: status.monitors,
       subscribedMonitorIds,
+      reportsSuppressedUntil,
     });
   } catch (e) {
     return next({ status: 500, message: (e as Error).message });
@@ -269,9 +277,11 @@ statusRoutes.delete<{ id: string }>(
 
 /**
  * Returns the count of active problem reports per monitor visible on the
- * public status page. Hidden monitors are not surfaced.
+ * public status page. Hidden monitors are not surfaced. `userReported`
+ * tells the UI whether the requesting user is among the reporters so it
+ * can pick a different copy for self-reports vs. third-party counts.
  */
-statusRoutes.get('/reports', async (_req, res, next) => {
+statusRoutes.get('/reports', async (req, res, next) => {
   try {
     const repo = getRepository(ProblemReport);
     const rows = await repo.find({
@@ -283,6 +293,15 @@ statusRoutes.get('/reports', async (_req, res, next) => {
     const visibleMonitorIds = new Set(
       uptimeRobotService.getMonitors('public').map((m: MonitorSummary) => m.id)
     );
+
+    let myMonitorIds = new Set<number>();
+    if (req.user) {
+      const mine = await repo.find({
+        where: { resolvedAt: IsNull(), reporter: { id: req.user.id } },
+        select: { monitorId: true },
+      });
+      myMonitorIds = new Set(mine.map((r) => r.monitorId));
+    }
 
     const counts = new Map<number, { name: string; count: number }>();
     for (const r of active) {
@@ -303,6 +322,7 @@ statusRoutes.get('/reports', async (_req, res, next) => {
         monitorId,
         name,
         count,
+        userReported: myMonitorIds.has(monitorId),
       }))
     );
   } catch (e) {
@@ -329,13 +349,31 @@ statusRoutes.post<never, unknown, { monitorIds?: number[] }>(
       });
     }
 
+    const suppressUntil = getSettings().uptimerobot.reportsSuppressedUntil;
+    if (typeof suppressUntil === 'number' && suppressUntil > Date.now()) {
+      return res.status(409).json({
+        suppressed: true,
+        suppressedUntil: suppressUntil,
+        message: 'Problem reports are paused for a planned maintenance window.',
+      });
+    }
+
     try {
       const monitors = uptimeRobotService.getMonitors('public');
+      const adminMonitors = uptimeRobotService.getMonitors('admin');
+      const hideFromReports = new Set(
+        adminMonitors.filter((m) => m.hideFromReports).map((m) => m.id)
+      );
       const monitorById = new Map(monitors.map((m) => [m.id, m]));
 
       const requested = req.body.monitorIds
         .map((v) => Number(v))
-        .filter((id) => Number.isFinite(id) && monitorById.has(id));
+        .filter(
+          (id) =>
+            Number.isFinite(id) &&
+            monitorById.has(id) &&
+            !hideFromReports.has(id)
+        );
       if (!requested.length) {
         return next({
           status: 400,
