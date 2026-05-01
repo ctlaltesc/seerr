@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { before, beforeEach, describe, it, mock } from 'node:test';
 
 import { getRepository } from '@server/datasource';
+import { Announcement } from '@server/entity/Announcement';
+import { User } from '@server/entity/User';
 import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecoverySubscription';
 import { getSettings } from '@server/lib/settings';
 import uptimeRobotService from '@server/lib/uptimerobot';
@@ -178,5 +180,150 @@ describe('DELETE /uptimerobot/subscribe/:monitorId', () => {
     // Friend's subscription should still exist
     const all = await getRepository(UserMonitorRecoverySubscription).find();
     assert.strictEqual(all.length, 1);
+  });
+});
+
+describe('GET /uptimerobot/announcements', () => {
+  async function seedAnnouncement(
+    email: string,
+    subject: string,
+    ageMs: number
+  ): Promise<number> {
+    const user = await getRepository(User).findOneOrFail({
+      where: { email },
+    });
+    const repo = getRepository(Announcement);
+    const saved = await repo.save(
+      new Announcement({
+        subject,
+        message: 'context',
+        postedBy: user,
+      })
+    );
+    // Backdate so we can exercise the expiry rules without sleeping.
+    await repo.update(saved.id, {
+      postedAt: new Date(Date.now() - ageMs),
+    });
+    return saved.id;
+  }
+
+  it('returns 403 for unauthenticated requests', async () => {
+    const res = await request(app).get('/uptimerobot/announcements');
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('returns active announcements for any logged-in user', async () => {
+    await seedAnnouncement('admin@seerr.dev', 'Hello world', 60_000);
+
+    const agent = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await agent.get('/uptimerobot/announcements');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.length, 1);
+    assert.strictEqual(res.body[0].subject, 'Hello world');
+    assert.ok(res.body[0].postedBy);
+  });
+
+  it('drops anything older than the 72h hard cap', async () => {
+    await seedAnnouncement('admin@seerr.dev', 'Old', 73 * 60 * 60 * 1000);
+    await seedAnnouncement('admin@seerr.dev', 'Fresh', 60_000);
+
+    const agent = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await agent.get('/uptimerobot/announcements');
+    assert.strictEqual(res.status, 200);
+    const subjects = res.body.map(
+      (a: { subject: string }) => a.subject
+    ) as string[];
+    assert.deepStrictEqual(subjects, ['Fresh']);
+
+    // Hard-cap row was deleted opportunistically.
+    const remaining = await getRepository(Announcement).find();
+    assert.strictEqual(remaining.length, 1);
+  });
+
+  it('drops 24h+ announcements when the system has been all-up for 24h', async () => {
+    mock.method(
+      uptimeRobotService,
+      'getLastDowntime',
+      () => Date.now() - 25 * 60 * 60 * 1000
+    );
+    await seedAnnouncement('admin@seerr.dev', 'Mediumold', 25 * 60 * 60 * 1000);
+    await seedAnnouncement('admin@seerr.dev', 'Recent', 60_000);
+
+    const agent = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await agent.get('/uptimerobot/announcements');
+    assert.strictEqual(res.status, 200);
+    const subjects = res.body.map(
+      (a: { subject: string }) => a.subject
+    ) as string[];
+    assert.deepStrictEqual(subjects, ['Recent']);
+  });
+
+  it('keeps 24h+ announcements when something has been down recently', async () => {
+    mock.method(
+      uptimeRobotService,
+      'getLastDowntime',
+      () => Date.now() - 60_000
+    );
+    await seedAnnouncement('admin@seerr.dev', 'Mediumold', 25 * 60 * 60 * 1000);
+
+    const agent = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await agent.get('/uptimerobot/announcements');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.length, 1);
+    assert.strictEqual(res.body[0].subject, 'Mediumold');
+  });
+
+  it('keeps 24h+ announcements when no downtime has been observed yet', async () => {
+    mock.method(uptimeRobotService, 'getLastDowntime', () => undefined);
+    await seedAnnouncement('admin@seerr.dev', 'Mediumold', 25 * 60 * 60 * 1000);
+
+    const agent = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await agent.get('/uptimerobot/announcements');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.length, 1);
+  });
+});
+
+describe('DELETE /uptimerobot/announcements/:id', () => {
+  it('lets an admin retract', async () => {
+    const owner = await getRepository(User).findOneOrFail({
+      where: { email: 'admin@seerr.dev' },
+    });
+    const saved = await getRepository(Announcement).save(
+      new Announcement({ subject: 'x', postedBy: owner })
+    );
+
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin.delete(`/uptimerobot/announcements/${saved.id}`);
+    assert.strictEqual(res.status, 204);
+    const remaining = await getRepository(Announcement).find();
+    assert.strictEqual(remaining.length, 0);
+  });
+
+  it('rejects non-admin users', async () => {
+    const owner = await getRepository(User).findOneOrFail({
+      where: { email: 'admin@seerr.dev' },
+    });
+    const saved = await getRepository(Announcement).save(
+      new Announcement({ subject: 'x', postedBy: owner })
+    );
+
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await friend.delete(`/uptimerobot/announcements/${saved.id}`);
+    assert.strictEqual(res.status, 403);
+    const remaining = await getRepository(Announcement).find();
+    assert.strictEqual(remaining.length, 1);
+  });
+
+  it('rejects an invalid id with 400', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin.delete('/uptimerobot/announcements/abc');
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('returns 204 when the id does not exist (idempotent)', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin.delete('/uptimerobot/announcements/99999');
+    assert.strictEqual(res.status, 204);
   });
 });

@@ -12,6 +12,8 @@ const messages = defineMessages(
     descriptionPlaceholder: 'Short description (optional)',
     defaultName: 'UptimeRobot name: {name}',
     drag: 'Drag to reorder',
+    hideUrl: 'Hide URL on status page',
+    hidden: 'Hide this monitor from the status page',
   }
 );
 
@@ -28,12 +30,16 @@ export interface MonitorRowItem {
   status: number | string;
   name: string;
   description: string;
+  hideUrl: boolean;
+  hidden: boolean;
 }
 
 interface MonitorRowProps {
   monitor: MonitorRowItem;
   onNameChange: (id: number, name: string) => void;
   onDescriptionChange: (id: number, description: string) => void;
+  onHideUrlChange: (id: number, hideUrl: boolean) => void;
+  onHiddenChange: (id: number, hidden: boolean) => void;
   onMove: (
     draggedId: number,
     targetId: number,
@@ -45,6 +51,8 @@ const MonitorRow = ({
   monitor,
   onNameChange,
   onDescriptionChange,
+  onHideUrlChange,
+  onHiddenChange,
   onMove,
 }: MonitorRowProps) => {
   const intl = useIntl();
@@ -173,6 +181,26 @@ const MonitorRow = ({
                 {monitor.url}
               </p>
             )}
+          </div>
+          <div className="flex flex-col gap-1 text-xs text-gray-300 sm:flex-row sm:gap-4">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="!h-4 !w-4 !rounded"
+                checked={monitor.hideUrl}
+                onChange={(e) => onHideUrlChange(monitor.id, e.target.checked)}
+              />
+              <span>{intl.formatMessage(messages.hideUrl)}</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="!h-4 !w-4 !rounded"
+                checked={monitor.hidden}
+                onChange={(e) => onHiddenChange(monitor.id, e.target.checked)}
+              />
+              <span>{intl.formatMessage(messages.hidden)}</span>
+            </label>
           </div>
         </div>
       </div>

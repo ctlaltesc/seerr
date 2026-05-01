@@ -2,6 +2,7 @@ import Alert from '@app/components/Common/Alert';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
+import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import { Permission, useUser } from '@app/hooks/useUser';
@@ -51,6 +52,9 @@ const messages = defineMessages('components.Broadcast', {
   clearAll: 'Clear all',
   admin: 'Admin',
   owner: 'Owner',
+  postToStatus: 'Post to status page',
+  postToStatusTip:
+    'Show this announcement to everyone visiting the status page until it auto-expires (after 72 hours, or sooner if all monitors stay online for 24 hours).',
 });
 
 interface BroadcastResponse {
@@ -114,11 +118,9 @@ const Broadcast = () => {
         ]}
       />
 
-      <div className="mb-6">
-        <h3 className="heading">
-          {intl.formatMessage(messages.broadcastTitle)}
-        </h3>
-        <p className="description">
+      <div className="mb-4">
+        <Header>{intl.formatMessage(messages.broadcastTitle)}</Header>
+        <p className="mt-2 text-sm text-gray-400">
           {intl.formatMessage(messages.broadcastDescription)}
         </p>
       </div>
@@ -126,7 +128,8 @@ const Broadcast = () => {
       <Formik
         initialValues={{
           subject: '',
-          message: intl.formatMessage(messages.messagePlaceholder),
+          message: '',
+          postToStatus: true,
         }}
         validationSchema={BroadcastSchema}
         onSubmit={async (values, { resetForm }) => {
@@ -145,6 +148,7 @@ const Broadcast = () => {
                 subject: values.subject.trim(),
                 message: values.message.trim() || undefined,
                 userIds: audience === 'select' ? selectedUserIds : undefined,
+                postToStatus: values.postToStatus,
               }
             );
 
@@ -171,7 +175,8 @@ const Broadcast = () => {
               resetForm({
                 values: {
                   subject: '',
-                  message: intl.formatMessage(messages.messagePlaceholder),
+                  message: '',
+                  postToStatus: values.postToStatus,
                 },
               });
               if (audience === 'select') {
@@ -241,6 +246,18 @@ const Broadcast = () => {
                   typeof errors.message === 'string' && (
                     <div className="error">{errors.message}</div>
                   )}
+              </div>
+            </div>
+
+            <div className="form-row">
+              <label htmlFor="postToStatus" className="checkbox-label">
+                {intl.formatMessage(messages.postToStatus)}
+                <span className="label-tip">
+                  {intl.formatMessage(messages.postToStatusTip)}
+                </span>
+              </label>
+              <div className="form-input-area">
+                <Field type="checkbox" id="postToStatus" name="postToStatus" />
               </div>
             </div>
 

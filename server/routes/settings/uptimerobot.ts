@@ -44,7 +44,9 @@ function sanitizeOverrides(raw: unknown): UptimeRobotMonitorOverride[] {
       const description = v.description.trim().slice(0, 240);
       if (description) entry.description = description;
     }
-    if (entry.name || entry.description) {
+    if (typeof v.hideUrl === 'boolean' && v.hideUrl) entry.hideUrl = true;
+    if (typeof v.hidden === 'boolean' && v.hidden) entry.hidden = true;
+    if (entry.name || entry.description || entry.hideUrl || entry.hidden) {
       seen.set(id, entry);
     }
   }
@@ -175,7 +177,7 @@ uptimeRobotRoutes.get('/monitors', async (_req, res, next) => {
     if (!uptimeRobotService.hasFetchedAtLeastOnce()) {
       await uptimeRobotService.poll();
     }
-    return res.status(200).json(uptimeRobotService.getMonitors());
+    return res.status(200).json(uptimeRobotService.getMonitors('admin'));
   } catch (e) {
     return next({
       status: 500,

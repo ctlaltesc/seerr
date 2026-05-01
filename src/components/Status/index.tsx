@@ -1,10 +1,17 @@
 import Alert from '@app/components/Common/Alert';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
+import CachedImage from '@app/components/Common/CachedImage';
+import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
+import { Permission, useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
-import { BellAlertIcon, BellSlashIcon } from '@heroicons/react/24/outline';
+import {
+  BellAlertIcon,
+  BellSlashIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline';
 import axios from 'axios';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
@@ -16,6 +23,11 @@ const messages = defineMessages('components.Status', {
   statusTitle: 'Service Status',
   statusDescription:
     'Current status of monitored services. Tap "Notify me" on a downed service to receive a push notification when it comes back online.',
+  announcements: 'Announcements',
+  postedBy: 'Posted by {name}',
+  retract: 'Remove this announcement',
+  retractFailed: 'Could not remove the announcement.',
+  retractSuccess: 'Announcement removed.',
   monitorUp: 'Operational',
   monitorDown: 'Down',
   monitorPaused: 'Paused',
@@ -62,9 +74,18 @@ export interface UptimerobotPublicSettings {
   recoveryNotificationsEnabled: boolean;
 }
 
+interface Announcement {
+  id: number;
+  subject: string;
+  message?: string;
+  postedAt: string;
+  postedBy?: { id: number; displayName: string; avatar: string };
+}
+
 const Status = () => {
   const intl = useIntl();
   const { addToast } = useToasts();
+  const { hasPermission } = useUser();
   const [busy, setBusy] = useState<number | null>(null);
 
   const {
@@ -74,6 +95,28 @@ const Status = () => {
   } = useSWR<StatusResponse>('/api/v1/uptimerobot', {
     refreshInterval: 30000,
   });
+
+  const { data: announcements, mutate: revalidateAnnouncements } = useSWR<
+    Announcement[]
+  >('/api/v1/uptimerobot/announcements', { refreshInterval: 60000 });
+
+  const isAdmin = hasPermission(Permission.ADMIN);
+
+  const retractAnnouncement = async (id: number) => {
+    try {
+      await axios.delete(`/api/v1/uptimerobot/announcements/${id}`);
+      addToast(intl.formatMessage(messages.retractSuccess), {
+        appearance: 'success',
+        autoDismiss: true,
+      });
+      await revalidateAnnouncements();
+    } catch {
+      addToast(intl.formatMessage(messages.retractFailed), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    }
+  };
 
   const recoveryEnabled = true; // Server omits monitors entirely if not enabled
   // — relies on the per-server `recoveryNotificationsEnabled` flag, but the
@@ -122,12 +165,80 @@ const Status = () => {
   return (
     <>
       <PageTitle title={intl.formatMessage(messages.status)} />
-      <div className="mb-6">
-        <h3 className="heading">{intl.formatMessage(messages.statusTitle)}</h3>
-        <p className="description">
+      <div className="mb-4">
+        <Header>{intl.formatMessage(messages.statusTitle)}</Header>
+        <p className="mt-2 text-sm text-gray-400">
           {intl.formatMessage(messages.statusDescription)}
         </p>
       </div>
+
+      {announcements && announcements.length > 0 && (
+        <div className="mb-6">
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400">
+            {intl.formatMessage(messages.announcements)}
+          </h3>
+          <ul className="space-y-3">
+            {announcements.map((a) => (
+              <li
+                key={a.id}
+                className="rounded-xl border border-indigo-600/40 bg-indigo-900/20 p-4 shadow-md"
+                data-testid={`announcement-${a.id}`}
+              >
+                <div className="flex items-start gap-3">
+                  {a.postedBy && (
+                    <CachedImage
+                      type="avatar"
+                      src={a.postedBy.avatar}
+                      alt=""
+                      width={32}
+                      height={32}
+                      className="mt-1 h-8 w-8 flex-shrink-0 rounded-full object-cover"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <p className="text-base font-semibold text-white">
+                        {a.subject}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {intl.formatDate(a.postedAt, {
+                          dateStyle: 'medium',
+                          timeStyle: 'short',
+                        })}
+                      </p>
+                    </div>
+                    {a.message && (
+                      <p className="mt-1 whitespace-pre-line text-sm text-gray-200">
+                        {a.message}
+                      </p>
+                    )}
+                    {a.postedBy && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        {intl.formatMessage(messages.postedBy, {
+                          name: a.postedBy.displayName,
+                        })}
+                      </p>
+                    )}
+                  </div>
+                  {isAdmin && (
+                    <Button
+                      buttonType="ghost"
+                      buttonSize="sm"
+                      type="button"
+                      aria-label={intl.formatMessage(messages.retract)}
+                      title={intl.formatMessage(messages.retract)}
+                      onClick={() => retractAnnouncement(a.id)}
+                      data-testid={`announcement-retract-${a.id}`}
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {!data.configured ? (
         <Alert type="info" title={intl.formatMessage(messages.notConfigured)} />
@@ -141,8 +252,8 @@ const Status = () => {
               title={intl.formatMessage(messages.fetchError)}
             />
           )}
-          <ul className="overflow-hidden rounded-md border border-gray-700 bg-gray-800/50">
-            {data.monitors.map((monitor, index) => {
+          <ul className="space-y-3">
+            {data.monitors.map((monitor) => {
               const isSubscribed = subscribed.has(monitor.id);
               const statusColor =
                 monitor.status === 'up'
@@ -164,16 +275,12 @@ const Status = () => {
               return (
                 <li
                   key={monitor.id}
-                  className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center ${
-                    index !== data.monitors.length - 1
-                      ? 'border-b border-gray-700'
-                      : ''
-                  }`}
+                  className="flex flex-col gap-3 rounded-xl border border-gray-700 bg-gray-800 p-5 shadow-md sm:flex-row sm:items-center sm:gap-4"
                   data-testid={`status-monitor-${monitor.id}`}
                 >
                   <div className="flex items-center sm:flex-1">
                     <div
-                      className={`mr-3 h-3 w-3 flex-shrink-0 rounded-full ${
+                      className={`mr-4 h-4 w-4 flex-shrink-0 rounded-full ${
                         monitor.status === 'up'
                           ? 'bg-green-500'
                           : monitor.status === 'down'
@@ -185,11 +292,11 @@ const Status = () => {
                       aria-hidden
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold text-white">
+                      <div className="truncate text-lg font-semibold text-white">
                         {monitor.name}
                       </div>
                       {monitor.description && (
-                        <div className="text-xs text-gray-300">
+                        <div className="mt-1 text-sm text-gray-300">
                           {monitor.description}
                         </div>
                       )}
@@ -198,20 +305,22 @@ const Status = () => {
                           href={monitor.url}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="block truncate text-xs text-gray-500 transition hover:text-indigo-400 hover:underline"
+                          className="mt-1 block truncate text-xs text-gray-500 transition hover:text-indigo-400 hover:underline"
                         >
                           {monitor.url}
                         </a>
                       )}
                     </div>
                   </div>
-                  <Badge badgeType={statusColor} className="self-start sm:ml-2">
+                  <Badge
+                    badgeType={statusColor}
+                    className="self-start text-sm sm:ml-2"
+                  >
                     {statusLabel}
                   </Badge>
                   {monitor.status === 'down' && recoveryEnabled && (
                     <Button
                       buttonType={isSubscribed ? 'ghost' : 'primary'}
-                      buttonSize="sm"
                       type="button"
                       disabled={busy === monitor.id}
                       onClick={() =>
