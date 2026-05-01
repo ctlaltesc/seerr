@@ -341,11 +341,45 @@ router.post<
       });
     }
 
+    if (subject.length > 120) {
+      return next({
+        status: 400,
+        message: 'Subject must be 120 characters or fewer.',
+      });
+    }
+
+    if (message && message.length > 500) {
+      return next({
+        status: 400,
+        message: 'Message must be 500 characters or fewer.',
+      });
+    }
+
+    // Differentiate "broadcast to all" (userIds omitted) from "broadcast to a
+    // selected list" (userIds provided). An explicitly empty list is a client
+    // error, not a request to silently broadcast to everyone.
+    const userIdsProvided = Array.isArray(req.body.userIds);
+    const targetUserIds = userIdsProvided
+      ? (req.body.userIds ?? []).filter((id) => Number.isFinite(id))
+      : [];
+
+    if (userIdsProvided && targetUserIds.length === 0) {
+      return next({
+        status: 400,
+        message:
+          'Select at least one user, or omit userIds to broadcast to all.',
+      });
+    }
+
     const userRepository = getRepository(User);
     const userPushSubRepository = getRepository(UserPushSubscription);
     const settings = getSettings();
 
     if (!settings.vapidPublic || !settings.vapidPrivate) {
+      logger.warn(
+        'Broadcast push notification attempted but web push is not configured',
+        { label: 'Notifications', sender: req.user?.displayName }
+      );
       return next({
         status: 500,
         message: 'Web push is not configured on this server.',
@@ -361,15 +395,11 @@ router.post<
       });
     }
 
-    const targetUserIds = Array.isArray(req.body.userIds)
-      ? req.body.userIds.filter((id) => Number.isFinite(id))
-      : [];
-
     const subsQuery = userPushSubRepository
       .createQueryBuilder('pushSub')
       .leftJoinAndSelect('pushSub.user', 'user');
 
-    if (targetUserIds.length > 0) {
+    if (userIdsProvided) {
       subsQuery.where('pushSub.userId IN (:...users)', {
         users: targetUserIds,
       });
@@ -378,6 +408,16 @@ router.post<
     const allSubs = await subsQuery.getMany();
 
     const recipientIds = new Set(allSubs.map((sub) => sub.user.id));
+
+    logger.info('Admin initiated broadcast push notification', {
+      label: 'Notifications',
+      sender: req.user?.displayName,
+      senderId: req.user?.id,
+      audience: userIdsProvided ? 'selected' : 'all',
+      targetedUsers: userIdsProvided ? targetUserIds.length : undefined,
+      subscriptions: allSubs.length,
+      recipients: recipientIds.size,
+    });
 
     webpush.setVapidDetails(
       `mailto:${mainUser.email}`,
@@ -426,7 +466,7 @@ router.post<
               ? 'Error sending broadcast push notification; removing invalid subscription'
               : 'Error sending broadcast push notification',
             {
-              label: 'API',
+              label: 'Notifications',
               recipient: pushSub.user.displayName,
               errorMessage: err.message ?? String(e),
               statusCode: statusCode ?? 'unknown',
@@ -441,12 +481,15 @@ router.post<
     );
 
     logger.info('Broadcast push notification dispatched', {
-      label: 'API',
+      label: 'Notifications',
       sender: req.user?.displayName,
+      senderId: req.user?.id,
       subject,
+      hasMessage: !!message,
       sent,
       failed,
       recipients: recipientIds.size,
+      audience: userIdsProvided ? 'selected' : 'all',
     });
 
     return res.status(200).json({
