@@ -2237,12 +2237,27 @@ paths:
                           enum: [up, down, paused, unknown]
                         rawStatus:
                           type: integer
+                        manualStatus:
+                          type: string
+                          enum:
+                            - operational
+                            - maintenance
+                            - degraded
+                            - partial_outage
+                            - major_outage
+                        manualStatusUntil:
+                          type: integer
+                          description: Epoch ms when the manual status auto-clears.
                   subscribedMonitorIds:
                     type: array
                     items:
                       type: integer
                   fetchError:
                     type: string
+                  reportsSuppressedUntil:
+                    type: integer
+                    nullable: true
+                    description: Epoch ms until which Report-a-Problem submissions are suppressed; null when none active.
   /uptimerobot/subscribe/{monitorId}:
     parameters:
       - in: path
@@ -2394,6 +2409,19 @@ paths:
                     type: integer
         '400':
           description: No valid monitor ids supplied.
+        '409':
+          description: Reports are suppressed for a planned maintenance window.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suppressed:
+                    type: boolean
+                  suppressedUntil:
+                    type: integer
+                  message:
+                    type: string
   /uptimerobot/reports/resolve:
     post:
       summary: Mark active problem reports resolved
@@ -3238,16 +3266,33 @@ paths:
                           type: string
                         description:
                           type: string
+                        hideUrl:
+                          type: boolean
+                        hidden:
+                          type: boolean
+                        hideFromReports:
+                          type: boolean
+                        manualStatus:
+                          type: string
+                          enum:
+                            - operational
+                            - maintenance
+                            - degraded
+                            - partial_outage
+                            - major_outage
+                        manualStatusUntil:
+                          type: integer
+                          description: Epoch ms when the manual status auto-clears.
                   recoveryNotificationsEnabled:
                     type: boolean
                   recoveryStableMinutes:
                     type: integer
                   pollIntervalSeconds:
                     type: integer
-                  notifyAdminOnReportWebPush:
-                    type: boolean
-                  notifyAdminOnReportTelegram:
-                    type: boolean
+                  reportsSuppressedUntil:
+                    type: integer
+                    nullable: true
+                    description: Epoch ms until which Report-a-Problem submissions are suppressed; null when none active.
     post:
       summary: Update UptimeRobot settings
       description: |
@@ -3287,6 +3332,22 @@ paths:
                       description:
                         type: string
                         maxLength: 240
+                      hideUrl:
+                        type: boolean
+                      hidden:
+                        type: boolean
+                      hideFromReports:
+                        type: boolean
+                      manualStatus:
+                        type: string
+                        enum:
+                          - operational
+                          - maintenance
+                          - degraded
+                          - partial_outage
+                          - major_outage
+                      manualStatusUntil:
+                        type: integer
                 recoveryNotificationsEnabled:
                   type: boolean
                 recoveryStableMinutes:
@@ -3297,10 +3358,6 @@ paths:
                   type: integer
                   minimum: 30
                   maximum: 3600
-                notifyAdminOnReportWebPush:
-                  type: boolean
-                notifyAdminOnReportTelegram:
-                  type: boolean
       responses:
         '200':
           description: Settings saved
@@ -4748,6 +4805,13 @@ paths:
                     When true (default), the broadcast is also posted to the
                     status page as an announcement that auto-expires after 72h
                     (or sooner if all monitors stay healthy for 24h).
+                suppressReportsForMinutes:
+                  type: integer
+                  minimum: 0
+                  maximum: 1440
+                  description: |
+                    When > 0, blocks new "Report a problem" submissions for
+                    the given number of minutes. Capped at 1440 (24h).
               required:
                 - subject
       responses:

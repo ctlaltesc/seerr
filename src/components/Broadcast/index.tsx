@@ -55,6 +55,11 @@ const messages = defineMessages('components.Broadcast', {
   postToStatus: 'Post to status page',
   postToStatusTip:
     'Show this announcement to everyone visiting the status page until it auto-expires (after 72 hours, or sooner if all monitors stay online for 24 hours).',
+  suppressReports: 'Suppress problem reports (minutes)',
+  suppressReportsTip:
+    'Block users from filing new “Report a problem” submissions for this many minutes. Useful when broadcasting a planned maintenance window. Leave 0 to disable.',
+  validationSuppressMax:
+    'Maximum suppression window is 1440 minutes (24 hours).',
 });
 
 interface BroadcastResponse {
@@ -103,6 +108,9 @@ const Broadcast = () => {
       500,
       intl.formatMessage(messages.validationMessageMax)
     ),
+    suppressReportsForMinutes: Yup.number()
+      .min(0)
+      .max(1440, intl.formatMessage(messages.validationSuppressMax)),
   });
 
   if (!usersData && !usersError) {
@@ -130,6 +138,7 @@ const Broadcast = () => {
           subject: '',
           message: '',
           postToStatus: true,
+          suppressReportsForMinutes: 0,
         }}
         validationSchema={BroadcastSchema}
         onSubmit={async (values, { resetForm }) => {
@@ -149,6 +158,8 @@ const Broadcast = () => {
                 message: values.message.trim() || undefined,
                 userIds: audience === 'select' ? selectedUserIds : undefined,
                 postToStatus: values.postToStatus,
+                suppressReportsForMinutes:
+                  Number(values.suppressReportsForMinutes) || 0,
               }
             );
 
@@ -177,6 +188,7 @@ const Broadcast = () => {
                   subject: '',
                   message: '',
                   postToStatus: values.postToStatus,
+                  suppressReportsForMinutes: 0,
                 },
               });
               if (audience === 'select') {
@@ -258,6 +270,35 @@ const Broadcast = () => {
               </label>
               <div className="form-input-area">
                 <Field type="checkbox" id="postToStatus" name="postToStatus" />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <label htmlFor="suppressReportsForMinutes" className="text-label">
+                {intl.formatMessage(messages.suppressReports)}
+                <span className="label-tip">
+                  {intl.formatMessage(messages.suppressReportsTip)}
+                </span>
+              </label>
+              <div className="form-input-area">
+                <div className="form-input-field">
+                  <Field
+                    id="suppressReportsForMinutes"
+                    name="suppressReportsForMinutes"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    inputMode="numeric"
+                    className="short"
+                  />
+                </div>
+                {errors.suppressReportsForMinutes &&
+                  touched.suppressReportsForMinutes &&
+                  typeof errors.suppressReportsForMinutes === 'string' && (
+                    <div className="error">
+                      {errors.suppressReportsForMinutes}
+                    </div>
+                  )}
               </div>
             </div>
 

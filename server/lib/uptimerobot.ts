@@ -8,6 +8,7 @@ import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecov
 import { UserPushSubscription } from '@server/entity/UserPushSubscription';
 import {
   getSettings,
+  type UptimeRobotManualStatus,
   type UptimeRobotMonitorOverride,
 } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -24,14 +25,48 @@ export interface MonitorSummary {
   /** Admin-controlled URL — empty string when the admin checked "hide URL". */
   url: string;
   type: number;
-  /** Normalised status: 'up' | 'down' | 'paused' | 'unknown'. */
+  /** Normalised status: 'up' | 'down' | 'paused' | 'unknown'. Reflects manual override when active. */
   status: 'up' | 'down' | 'paused' | 'unknown';
   /** UptimeRobot's raw status code, retained for richer UI. */
   rawStatus: number;
   /** Admin override flags. Always sent to the admin UI; stripped from public callers. */
   hideUrl?: boolean;
   hidden?: boolean;
+  /**
+   * When set, the admin manually pinned this monitor to one of the public
+   * statuses ("operational" / "maintenance" / etc) until `manualStatusUntil`.
+   * `status` above already reflects this override; `manualStatus` is sent
+   * along so clients can render a more specific label.
+   */
+  manualStatus?: UptimeRobotManualStatus;
+  /** Epoch ms after which the manual status is ignored. */
+  manualStatusUntil?: number;
+  /** When true, omit from the user-facing report modal. Admin scope only. */
+  hideFromReports?: boolean;
 }
+
+/**
+ * Map an admin-pinned manual status onto the simpler `up | down | paused | unknown`
+ * vocabulary used by the existing UI. Operational = up, maintenance = paused
+ * (so it doesn't trigger the "is it down" UI), all the others are some flavour
+ * of down.
+ */
+const manualStatusToNormalized = (
+  status: UptimeRobotManualStatus
+): 'up' | 'down' | 'paused' | 'unknown' => {
+  switch (status) {
+    case 'operational':
+      return 'up';
+    case 'maintenance':
+      return 'paused';
+    case 'degraded':
+    case 'partial_outage':
+    case 'major_outage':
+      return 'down';
+    default:
+      return 'unknown';
+  }
+};
 
 interface MonitorRecoveryState {
   /** Wall-clock ms when the monitor was last observed as DOWN. */
@@ -106,18 +141,37 @@ class UptimeRobotService {
       }
     }
 
+    const now = Date.now();
     const enriched = this.latest
       .map((m) => {
         const override = overrideById.get(m.id);
         const hideUrl = override?.hideUrl === true;
         const hidden = override?.hidden === true;
+        const hideFromReports = override?.hideFromReports === true;
+
+        const manualActive =
+          !!override?.manualStatus &&
+          typeof override.manualStatusUntil === 'number' &&
+          override.manualStatusUntil > now;
+
+        const manualStatus = manualActive ? override?.manualStatus : undefined;
+        const manualStatusUntil = manualActive
+          ? override?.manualStatusUntil
+          : undefined;
+
         return {
           ...m,
           name: override?.name?.trim() || m.defaultName,
           description: override?.description?.trim() || undefined,
           hideUrl,
           hidden,
+          hideFromReports: scope === 'admin' ? hideFromReports : undefined,
           url: scope === 'public' && hideUrl ? '' : m.url,
+          status: manualStatus
+            ? manualStatusToNormalized(manualStatus)
+            : m.status,
+          manualStatus,
+          manualStatusUntil,
         };
       })
       .filter((m) => (scope === 'public' ? !m.hidden : true));

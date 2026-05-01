@@ -331,12 +331,12 @@ describe('DELETE /uptimerobot/announcements/:id', () => {
 
 describe('Problem Reports', () => {
   beforeEach(() => {
-    // Disable admin notification dispatch by default for the test pass —
-    // the dispatcher itself is best-effort, but the routes are what we
-    // want to assert on here.
+    // Reset any leftover suppression window between tests so the routes are
+    // exercised on their happy path. Per-channel admin opt-in is now driven
+    // off each user's notification preferences (set elsewhere), so there's
+    // no global toggle to clear here.
     const settings = getSettings();
-    settings.uptimerobot.notifyAdminOnReportWebPush = false;
-    settings.uptimerobot.notifyAdminOnReportTelegram = false;
+    settings.uptimerobot.reportsSuppressedUntil = undefined;
   });
 
   it('POST /reports requires auth', async () => {

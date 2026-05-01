@@ -1,8 +1,9 @@
 import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
 import { UserPushSubscription } from '@server/entity/UserPushSubscription';
+import { Notification } from '@server/lib/notifications';
 import { Permission } from '@server/lib/permissions';
-import { getSettings } from '@server/lib/settings';
+import { getSettings, NotificationAgentKey } from '@server/lib/settings';
 import logger from '@server/logger';
 import axios from 'axios';
 import webpush from 'web-push';
@@ -15,10 +16,11 @@ interface ReportNotifierPayload {
 }
 
 /**
- * Send the "user just reported a problem" notification to every admin
- * who has the relevant channel enabled, respecting the master toggles
- * (`notifyAdminOnReportWebPush`, `notifyAdminOnReportTelegram`) on
- * `settings.uptimerobot`.
+ * Send the "user just reported a problem" notification to every admin who
+ * has opted in via their personal user notification settings. Each admin
+ * controls each channel (web push / Telegram) independently from
+ * `/users/<id>/settings/notifications/<agent>`; this dispatch never
+ * second-guesses that opt-in.
  *
  * Best-effort: each channel is fire-and-forget and one channel's
  * failure does not stop the others. Errors are logged but never thrown.
@@ -27,11 +29,6 @@ export async function notifyAdminsOfReport(
   payload: ReportNotifierPayload
 ): Promise<void> {
   const settings = getSettings();
-  const ur = settings.uptimerobot;
-
-  if (!ur.notifyAdminOnReportWebPush && !ur.notifyAdminOnReportTelegram) {
-    return;
-  }
 
   const admins = await getRepository(User)
     .createQueryBuilder('user')
@@ -46,12 +43,30 @@ export async function notifyAdminsOfReport(
       ? `Reported an issue with ${payload.monitorNames[0]}.`
       : `Reported issues with: ${payload.monitorNames.join(', ')}.`;
 
-  if (ur.notifyAdminOnReportWebPush) {
-    await dispatchWebPush(adminUsers, subject, body, settings);
-  }
+  // Per-channel filtering — each admin opts in independently.
+  // Web push defaults on (matching the upstream agent's default-true
+  // behaviour for unset prefs); Telegram defaults off because it
+  // requires a chat id anyway.
+  const webPushTargets = adminUsers.filter(
+    (u) =>
+      u.settings?.hasNotificationType(
+        NotificationAgentKey.WEBPUSH,
+        Notification.PROBLEM_REPORTED
+      ) ?? true
+  );
+  const telegramTargets = adminUsers.filter(
+    (u) =>
+      u.settings?.hasNotificationType(
+        NotificationAgentKey.TELEGRAM,
+        Notification.PROBLEM_REPORTED
+      ) ?? false
+  );
 
-  if (ur.notifyAdminOnReportTelegram) {
-    await dispatchTelegram(adminUsers, subject, body, settings);
+  if (webPushTargets.length) {
+    await dispatchWebPush(webPushTargets, subject, body, settings);
+  }
+  if (telegramTargets.length) {
+    await dispatchTelegram(telegramTargets, subject, body, settings);
   }
 }
 

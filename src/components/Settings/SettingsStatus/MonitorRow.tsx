@@ -1,7 +1,8 @@
 import Badge from '@app/components/Common/Badge';
+import Button from '@app/components/Common/Button';
 import defineMessages from '@app/utils/defineMessages';
-import { Bars3Icon } from '@heroicons/react/24/outline';
-import { useRef, useState } from 'react';
+import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
+import { useEffect, useRef, useState } from 'react';
 import { useDrag, useDrop } from 'react-aria';
 import { useIntl } from 'react-intl';
 
@@ -14,6 +15,19 @@ const messages = defineMessages(
     drag: 'Drag to reorder',
     hideUrl: 'Hide URL on status page',
     hidden: 'Hide this monitor from the status page',
+    hideFromReports: 'Hide from the “Report a problem” modal',
+    useCustomName: 'Use custom name',
+    forceStatus: 'Force status',
+    forceStatusNone: 'No override',
+    statusOperational: 'Operational',
+    statusMaintenance: 'Scheduled Maintenance',
+    statusDegraded: 'Degraded Performance',
+    statusPartialOutage: 'Partial Outage',
+    statusMajorOutage: 'Major Outage',
+    minutesLabel: 'for',
+    minutesUnit: 'min',
+    activeUntil: 'Active until {time}',
+    clearOverride: 'Clear',
   }
 );
 
@@ -22,6 +36,13 @@ const Position = {
   Above: 'Above',
   Below: 'Below',
 } as const;
+
+export type ManualStatus =
+  | 'operational'
+  | 'maintenance'
+  | 'degraded'
+  | 'partial_outage'
+  | 'major_outage';
 
 export interface MonitorRowItem {
   id: number;
@@ -32,6 +53,9 @@ export interface MonitorRowItem {
   description: string;
   hideUrl: boolean;
   hidden: boolean;
+  hideFromReports: boolean;
+  manualStatus?: ManualStatus;
+  manualStatusUntil?: number;
 }
 
 interface MonitorRowProps {
@@ -40,6 +64,12 @@ interface MonitorRowProps {
   onDescriptionChange: (id: number, description: string) => void;
   onHideUrlChange: (id: number, hideUrl: boolean) => void;
   onHiddenChange: (id: number, hidden: boolean) => void;
+  onHideFromReportsChange: (id: number, hideFromReports: boolean) => void;
+  onManualStatusChange: (
+    id: number,
+    status: ManualStatus | undefined,
+    minutes: number
+  ) => void;
   onMove: (
     draggedId: number,
     targetId: number,
@@ -53,6 +83,8 @@ const MonitorRow = ({
   onDescriptionChange,
   onHideUrlChange,
   onHiddenChange,
+  onHideFromReportsChange,
+  onManualStatusChange,
   onMove,
 }: MonitorRowProps) => {
   const intl = useIntl();
@@ -60,6 +92,25 @@ const MonitorRow = ({
   const [hoverPosition, setHoverPosition] = useState<keyof typeof Position>(
     Position.None
   );
+  const [useCustomName, setUseCustomName] = useState<boolean>(
+    !!monitor.name?.trim()
+  );
+
+  // Default the duration field to whatever's still live, falling back to 30.
+  const remainingMinutes =
+    monitor.manualStatusUntil && monitor.manualStatusUntil > Date.now()
+      ? Math.max(
+          1,
+          Math.round((monitor.manualStatusUntil - Date.now()) / 60000)
+        )
+      : 30;
+  const [minutes, setMinutes] = useState<number>(remainingMinutes);
+
+  // If the parent reloads with a different override, reflect that in the
+  // local checkbox state once.
+  useEffect(() => {
+    setUseCustomName((current) => current || !!monitor.name?.trim());
+  }, [monitor.name]);
 
   const { dragProps, isDragging } = useDrag({
     getItems() {
@@ -119,6 +170,11 @@ const MonitorRow = ({
     return { type: 'default' as const, label: 'Unknown' };
   })();
 
+  const manualActive =
+    !!monitor.manualStatus &&
+    !!monitor.manualStatusUntil &&
+    monitor.manualStatusUntil > Date.now();
+
   return (
     <div
       ref={ref}
@@ -146,17 +202,43 @@ const MonitorRow = ({
         </button>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-            <div className="flex-1">
-              <input
-                type="text"
-                value={monitor.name}
-                onChange={(e) => onNameChange(monitor.id, e.target.value)}
-                placeholder={intl.formatMessage(messages.customNamePlaceholder)}
-                maxLength={80}
-                className="w-full"
-                aria-label={intl.formatMessage(messages.customNamePlaceholder)}
-              />
-              <p className="mt-1 truncate text-xs text-gray-500">
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="truncate text-sm font-semibold text-white">
+                  {monitor.defaultName}
+                </span>
+                <label className="flex flex-shrink-0 items-center gap-2 text-xs text-gray-300">
+                  <input
+                    type="checkbox"
+                    className="!h-4 !w-4 !rounded"
+                    checked={useCustomName}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setUseCustomName(next);
+                      if (!next && monitor.name) {
+                        onNameChange(monitor.id, '');
+                      }
+                    }}
+                  />
+                  <span>{intl.formatMessage(messages.useCustomName)}</span>
+                </label>
+              </div>
+              {useCustomName && (
+                <input
+                  type="text"
+                  value={monitor.name}
+                  onChange={(e) => onNameChange(monitor.id, e.target.value)}
+                  placeholder={intl.formatMessage(
+                    messages.customNamePlaceholder
+                  )}
+                  maxLength={80}
+                  className="w-full"
+                  aria-label={intl.formatMessage(
+                    messages.customNamePlaceholder
+                  )}
+                />
+              )}
+              <p className="truncate text-xs text-gray-500">
                 {intl.formatMessage(messages.defaultName, {
                   name: monitor.defaultName,
                 })}
@@ -182,7 +264,95 @@ const MonitorRow = ({
               </p>
             )}
           </div>
-          <div className="flex flex-col gap-1 text-xs text-gray-300 sm:flex-row sm:gap-4">
+          <div className="flex flex-col gap-2 rounded-md border border-gray-700/60 bg-gray-900/40 p-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <label className="text-xs uppercase tracking-wide text-gray-400">
+                {intl.formatMessage(messages.forceStatus)}
+              </label>
+              <select
+                value={monitor.manualStatus ?? ''}
+                onChange={(e) => {
+                  const next = (e.target.value || undefined) as
+                    | ManualStatus
+                    | undefined;
+                  onManualStatusChange(monitor.id, next, minutes);
+                }}
+                className="short"
+              >
+                <option value="">
+                  {intl.formatMessage(messages.forceStatusNone)}
+                </option>
+                <option value="operational">
+                  {intl.formatMessage(messages.statusOperational)}
+                </option>
+                <option value="maintenance">
+                  {intl.formatMessage(messages.statusMaintenance)}
+                </option>
+                <option value="degraded">
+                  {intl.formatMessage(messages.statusDegraded)}
+                </option>
+                <option value="partial_outage">
+                  {intl.formatMessage(messages.statusPartialOutage)}
+                </option>
+                <option value="major_outage">
+                  {intl.formatMessage(messages.statusMajorOutage)}
+                </option>
+              </select>
+              <label className="flex items-center gap-1 text-xs text-gray-300">
+                <span>{intl.formatMessage(messages.minutesLabel)}</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={1440}
+                  value={minutes}
+                  onChange={(e) => {
+                    const value = Math.max(
+                      1,
+                      Math.min(1440, Number(e.target.value) || 0)
+                    );
+                    setMinutes(value);
+                    if (monitor.manualStatus) {
+                      onManualStatusChange(
+                        monitor.id,
+                        monitor.manualStatus,
+                        value
+                      );
+                    }
+                  }}
+                  className="short"
+                />
+                <span>{intl.formatMessage(messages.minutesUnit)}</span>
+              </label>
+              {manualActive && (
+                <Button
+                  buttonType="ghost"
+                  buttonSize="sm"
+                  type="button"
+                  onClick={() =>
+                    onManualStatusChange(monitor.id, undefined, minutes)
+                  }
+                  aria-label={intl.formatMessage(messages.clearOverride)}
+                  title={intl.formatMessage(messages.clearOverride)}
+                >
+                  <XMarkIcon className="h-4 w-4" />
+                  <span className="ml-1 hidden sm:inline">
+                    {intl.formatMessage(messages.clearOverride)}
+                  </span>
+                </Button>
+              )}
+            </div>
+            {manualActive && monitor.manualStatusUntil && (
+              <p className="text-xs text-gray-400">
+                {intl.formatMessage(messages.activeUntil, {
+                  time: intl.formatTime(new Date(monitor.manualStatusUntil), {
+                    timeStyle: 'short',
+                  }),
+                })}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 text-xs text-gray-300 sm:flex-row sm:flex-wrap sm:gap-4">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -200,6 +370,17 @@ const MonitorRow = ({
                 onChange={(e) => onHiddenChange(monitor.id, e.target.checked)}
               />
               <span>{intl.formatMessage(messages.hidden)}</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="!h-4 !w-4 !rounded"
+                checked={monitor.hideFromReports}
+                onChange={(e) =>
+                  onHideFromReportsChange(monitor.id, e.target.checked)
+                }
+              />
+              <span>{intl.formatMessage(messages.hideFromReports)}</span>
             </label>
           </div>
         </div>

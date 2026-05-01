@@ -334,6 +334,7 @@ router.post<
     message?: string;
     userIds?: number[];
     postToStatus?: boolean;
+    suppressReportsForMinutes?: number;
   }
 >('/broadcast', isAuthenticated(Permission.ADMIN), async (req, res, next) => {
   try {
@@ -341,6 +342,14 @@ router.post<
     const message = (req.body.message ?? '').trim() || undefined;
     // Default to true so the existing UI behaviour matches the new feature.
     const postToStatus = req.body.postToStatus !== false;
+    // Cap the suppression window at 24h so a typo can't lock reports for days.
+    const suppressMinutes = Math.max(
+      0,
+      Math.min(
+        1440,
+        Math.round(Number(req.body.suppressReportsForMinutes ?? 0)) || 0
+      )
+    );
 
     if (!subject) {
       return next({
@@ -516,6 +525,19 @@ router.post<
         // Persisting the announcement is best-effort — the push has
         // already gone out, so we just log and carry on.
         logger.warn('Failed to persist announcement for broadcast', {
+          label: 'API',
+          errorMessage: (e as Error).message,
+        });
+      }
+    }
+
+    if (suppressMinutes > 0) {
+      try {
+        settings.uptimerobot.reportsSuppressedUntil =
+          Date.now() + suppressMinutes * 60_000;
+        await settings.save();
+      } catch (e) {
+        logger.warn('Failed to persist report-suppression window', {
           label: 'API',
           errorMessage: (e as Error).message,
         });

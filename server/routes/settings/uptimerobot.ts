@@ -1,6 +1,8 @@
 import type { UptimeRobotMonitor } from '@server/api/uptimerobot';
 import {
   getSettings,
+  UPTIMEROBOT_MANUAL_STATUSES,
+  type UptimeRobotManualStatus,
   type UptimeRobotMonitorOverride,
   type UptimeRobotSettings,
 } from '@server/lib/settings';
@@ -19,8 +21,7 @@ const filterPublicSettings = (settings: UptimeRobotSettings) => ({
   recoveryNotificationsEnabled: settings.recoveryNotificationsEnabled,
   recoveryStableMinutes: settings.recoveryStableMinutes,
   pollIntervalSeconds: settings.pollIntervalSeconds,
-  notifyAdminOnReportWebPush: settings.notifyAdminOnReportWebPush,
-  notifyAdminOnReportTelegram: settings.notifyAdminOnReportTelegram,
+  reportsSuppressedUntil: settings.reportsSuppressedUntil ?? null,
 });
 
 /**
@@ -32,6 +33,7 @@ const filterPublicSettings = (settings: UptimeRobotSettings) => ({
 function sanitizeOverrides(raw: unknown): UptimeRobotMonitorOverride[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Map<number, UptimeRobotMonitorOverride>();
+  const now = Date.now();
   for (const value of raw) {
     if (!value || typeof value !== 'object') continue;
     const v = value as Partial<UptimeRobotMonitorOverride>;
@@ -48,7 +50,30 @@ function sanitizeOverrides(raw: unknown): UptimeRobotMonitorOverride[] {
     }
     if (typeof v.hideUrl === 'boolean' && v.hideUrl) entry.hideUrl = true;
     if (typeof v.hidden === 'boolean' && v.hidden) entry.hidden = true;
-    if (entry.name || entry.description || entry.hideUrl || entry.hidden) {
+    if (typeof v.hideFromReports === 'boolean' && v.hideFromReports) {
+      entry.hideFromReports = true;
+    }
+    // Manual status — only kept when the supplied label is recognised AND
+    // the expiry is still in the future. Drop expired entries on the way in
+    // so the persisted settings stay tidy.
+    if (
+      typeof v.manualStatus === 'string' &&
+      (UPTIMEROBOT_MANUAL_STATUSES as string[]).includes(v.manualStatus) &&
+      typeof v.manualStatusUntil === 'number' &&
+      Number.isFinite(v.manualStatusUntil) &&
+      v.manualStatusUntil > now
+    ) {
+      entry.manualStatus = v.manualStatus as UptimeRobotManualStatus;
+      entry.manualStatusUntil = v.manualStatusUntil;
+    }
+    if (
+      entry.name ||
+      entry.description ||
+      entry.hideUrl ||
+      entry.hidden ||
+      entry.hideFromReports ||
+      entry.manualStatus
+    ) {
       seen.set(id, entry);
     }
   }
@@ -105,12 +130,7 @@ uptimeRobotRoutes.post<
             60
         )
       ),
-      notifyAdminOnReportWebPush:
-        req.body.notifyAdminOnReportWebPush ??
-        current.notifyAdminOnReportWebPush,
-      notifyAdminOnReportTelegram:
-        req.body.notifyAdminOnReportTelegram ??
-        current.notifyAdminOnReportTelegram,
+      reportsSuppressedUntil: current.reportsSuppressedUntil,
     };
 
     settings.uptimerobot = next;
