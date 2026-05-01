@@ -129,7 +129,9 @@ describe('POST /user/broadcast', () => {
 
   it('returns 400 when subject is missing', async () => {
     const agent = await loginAs('admin@seerr.dev', 'test1234');
-    const res = await agent.post('/user/broadcast').send({ message: 'no subject' });
+    const res = await agent
+      .post('/user/broadcast')
+      .send({ message: 'no subject' });
     assert.strictEqual(res.status, 400);
     assert.match(res.body.message, /subject is required/);
   });
@@ -246,9 +248,13 @@ describe('POST /user/broadcast', () => {
     assert.strictEqual(res.body.recipients, 1);
     assert.strictEqual(sendNotificationMock.callCount(), 1);
 
-    const subscription = sendNotificationMock.calls[0]
-      .arguments[0] as { endpoint: string };
-    assert.strictEqual(subscription.endpoint, 'https://endpoint.example/friend');
+    const subscription = sendNotificationMock.calls[0].arguments[0] as {
+      endpoint: string;
+    };
+    assert.strictEqual(
+      subscription.endpoint,
+      'https://endpoint.example/friend'
+    );
   });
 
   it('omits message field from payload when empty', async () => {
@@ -322,8 +328,14 @@ describe('POST /user/broadcast', () => {
   });
 
   it('counts unique recipients when a user has multiple subscriptions', async () => {
-    await seedSubscription('admin@seerr.dev', 'https://endpoint.example/desktop');
-    await seedSubscription('admin@seerr.dev', 'https://endpoint.example/mobile');
+    await seedSubscription(
+      'admin@seerr.dev',
+      'https://endpoint.example/desktop'
+    );
+    await seedSubscription(
+      'admin@seerr.dev',
+      'https://endpoint.example/mobile'
+    );
 
     const agent = await loginAs('admin@seerr.dev', 'test1234');
     const res = await agent
