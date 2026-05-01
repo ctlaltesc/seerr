@@ -1,10 +1,20 @@
 import Alert from '@app/components/Common/Alert';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
+import CachedImage from '@app/components/Common/CachedImage';
+import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
+import Modal from '@app/components/Common/Modal';
 import PageTitle from '@app/components/Common/PageTitle';
+import { Permission, useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
-import { BellAlertIcon, BellSlashIcon } from '@heroicons/react/24/outline';
+import { Transition } from '@headlessui/react';
+import {
+  BellAlertIcon,
+  BellSlashIcon,
+  ExclamationTriangleIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline';
 import axios from 'axios';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
@@ -16,6 +26,11 @@ const messages = defineMessages('components.Status', {
   statusTitle: 'Service Status',
   statusDescription:
     'Current status of monitored services. Tap "Notify me" on a downed service to receive a push notification when it comes back online.',
+  announcements: 'Announcements',
+  postedBy: 'Posted by {name}',
+  retract: 'Remove this announcement',
+  retractFailed: 'Could not remove the announcement.',
+  retractSuccess: 'Announcement removed.',
   monitorUp: 'Operational',
   monitorDown: 'Down',
   monitorPaused: 'Paused',
@@ -36,6 +51,25 @@ const messages = defineMessages('components.Status', {
     'Recovery notifications are currently disabled by the administrator.',
   visitMonitor: 'Open',
   lastChecked: 'Last checked {time}',
+  reportProblem: 'Report a problem',
+  reportTitle: 'Report a problem',
+  reportDescription:
+    'Check off any services you’re having trouble with. The administrator will be notified, and other people will see that you’re also having issues.',
+  reportSubmit: 'Submit',
+  reportSubmitting: 'Submitting…',
+  reportNoSelection: 'Select at least one service.',
+  reportSuccess:
+    '{count, plural, one {Submitted. The administrator has been notified.} other {Submitted. The administrator has been notified about your # reports.}}',
+  reportAllAlready:
+    'You’ve already reported all the services you selected. The administrator was already notified.',
+  reportFailed: 'Could not submit the report.',
+  reportCount:
+    '{count, plural, one {# other person is reporting an issue} other {# other people are reporting an issue}}',
+  reportCountSelf:
+    '{count, plural, one {You are reporting an issue} other {You and # others are reporting an issue}}',
+  resolveAll: 'Mark all reports for this service resolved',
+  resolveAllSuccess: 'Reports cleared.',
+  resolveAllFailed: 'Could not clear reports.',
 });
 
 interface StatusMonitor {
@@ -62,9 +96,24 @@ export interface UptimerobotPublicSettings {
   recoveryNotificationsEnabled: boolean;
 }
 
+interface Announcement {
+  id: number;
+  subject: string;
+  message?: string;
+  postedAt: string;
+  postedBy?: { id: number; displayName: string; avatar: string };
+}
+
+interface ReportCount {
+  monitorId: number;
+  name: string;
+  count: number;
+}
+
 const Status = () => {
   const intl = useIntl();
   const { addToast } = useToasts();
+  const { hasPermission } = useUser();
   const [busy, setBusy] = useState<number | null>(null);
 
   const {
@@ -74,6 +123,106 @@ const Status = () => {
   } = useSWR<StatusResponse>('/api/v1/uptimerobot', {
     refreshInterval: 30000,
   });
+
+  const { data: announcements, mutate: revalidateAnnouncements } = useSWR<
+    Announcement[]
+  >('/api/v1/uptimerobot/announcements', { refreshInterval: 60000 });
+
+  const { data: reportCounts, mutate: revalidateReports } = useSWR<
+    ReportCount[]
+  >('/api/v1/uptimerobot/reports', { refreshInterval: 60000 });
+
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportSelection, setReportSelection] = useState<Set<number>>(
+    new Set()
+  );
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+
+  const isAdmin = hasPermission(Permission.ADMIN);
+
+  const retractAnnouncement = async (id: number) => {
+    try {
+      await axios.delete(`/api/v1/uptimerobot/announcements/${id}`);
+      addToast(intl.formatMessage(messages.retractSuccess), {
+        appearance: 'success',
+        autoDismiss: true,
+      });
+      await revalidateAnnouncements();
+    } catch {
+      addToast(intl.formatMessage(messages.retractFailed), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    }
+  };
+
+  const toggleReportSelection = (monitorId: number) => {
+    setReportSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(monitorId)) next.delete(monitorId);
+      else next.add(monitorId);
+      return next;
+    });
+  };
+
+  const submitReport = async () => {
+    if (reportSelection.size === 0) {
+      addToast(intl.formatMessage(messages.reportNoSelection), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+      return;
+    }
+    setReportSubmitting(true);
+    try {
+      const response = await axios.post<{
+        created: number;
+        alreadyReported: number;
+      }>('/api/v1/uptimerobot/reports', {
+        monitorIds: [...reportSelection],
+      });
+      const { created, alreadyReported } = response.data;
+      if (created === 0 && alreadyReported > 0) {
+        addToast(intl.formatMessage(messages.reportAllAlready), {
+          appearance: 'info',
+          autoDismiss: true,
+        });
+      } else {
+        addToast(
+          intl.formatMessage(messages.reportSuccess, { count: created }),
+          { appearance: 'success', autoDismiss: true }
+        );
+      }
+      setReportModalOpen(false);
+      setReportSelection(new Set());
+      await revalidateReports();
+    } catch {
+      addToast(intl.formatMessage(messages.reportFailed), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
+  const resolveReportsForMonitor = async (monitorId: number) => {
+    try {
+      await axios.post(
+        `/api/v1/uptimerobot/reports/resolve?monitorId=${monitorId}`
+      );
+      addToast(intl.formatMessage(messages.resolveAllSuccess), {
+        appearance: 'success',
+        autoDismiss: true,
+      });
+      await revalidateReports();
+    } catch {
+      addToast(intl.formatMessage(messages.resolveAllFailed), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    }
+  };
 
   const recoveryEnabled = true; // Server omits monitors entirely if not enabled
   // — relies on the per-server `recoveryNotificationsEnabled` flag, but the
@@ -122,12 +271,98 @@ const Status = () => {
   return (
     <>
       <PageTitle title={intl.formatMessage(messages.status)} />
-      <div className="mb-6">
-        <h3 className="heading">{intl.formatMessage(messages.statusTitle)}</h3>
-        <p className="description">
-          {intl.formatMessage(messages.statusDescription)}
-        </p>
+      <div className="mb-4 flex flex-col justify-between gap-2 lg:flex-row lg:items-end">
+        <div className="min-w-0">
+          <Header>{intl.formatMessage(messages.statusTitle)}</Header>
+          <p className="mt-2 text-sm text-gray-400">
+            {intl.formatMessage(messages.statusDescription)}
+          </p>
+        </div>
+        {data?.configured && data.monitors.length > 0 && (
+          <div className="flex flex-shrink-0">
+            <Button
+              buttonType="warning"
+              type="button"
+              onClick={() => {
+                setReportSelection(new Set());
+                setReportModalOpen(true);
+              }}
+              data-testid="status-report-problem"
+            >
+              <ExclamationTriangleIcon />
+              <span>{intl.formatMessage(messages.reportProblem)}</span>
+            </Button>
+          </div>
+        )}
       </div>
+
+      {announcements && announcements.length > 0 && (
+        <div className="mb-6">
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400">
+            {intl.formatMessage(messages.announcements)}
+          </h3>
+          <ul className="space-y-3">
+            {announcements.map((a) => (
+              <li
+                key={a.id}
+                className="rounded-xl border border-indigo-600/40 bg-indigo-900/20 p-4 shadow-md"
+                data-testid={`announcement-${a.id}`}
+              >
+                <div className="flex items-start gap-3">
+                  {a.postedBy && (
+                    <CachedImage
+                      type="avatar"
+                      src={a.postedBy.avatar}
+                      alt=""
+                      width={32}
+                      height={32}
+                      className="mt-1 h-8 w-8 flex-shrink-0 rounded-full object-cover"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <p className="text-base font-semibold text-white">
+                        {a.subject}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {intl.formatDate(a.postedAt, {
+                          dateStyle: 'medium',
+                          timeStyle: 'short',
+                        })}
+                      </p>
+                    </div>
+                    {a.message && (
+                      <p className="mt-1 whitespace-pre-line text-sm text-gray-200">
+                        {a.message}
+                      </p>
+                    )}
+                    {a.postedBy && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        {intl.formatMessage(messages.postedBy, {
+                          name: a.postedBy.displayName,
+                        })}
+                      </p>
+                    )}
+                  </div>
+                  {isAdmin && (
+                    <Button
+                      buttonType="ghost"
+                      buttonSize="sm"
+                      type="button"
+                      aria-label={intl.formatMessage(messages.retract)}
+                      title={intl.formatMessage(messages.retract)}
+                      onClick={() => retractAnnouncement(a.id)}
+                      data-testid={`announcement-retract-${a.id}`}
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {!data.configured ? (
         <Alert type="info" title={intl.formatMessage(messages.notConfigured)} />
@@ -141,8 +376,8 @@ const Status = () => {
               title={intl.formatMessage(messages.fetchError)}
             />
           )}
-          <ul className="overflow-hidden rounded-md border border-gray-700 bg-gray-800/50">
-            {data.monitors.map((monitor, index) => {
+          <ul className="space-y-3">
+            {data.monitors.map((monitor) => {
               const isSubscribed = subscribed.has(monitor.id);
               const statusColor =
                 monitor.status === 'up'
@@ -164,16 +399,12 @@ const Status = () => {
               return (
                 <li
                   key={monitor.id}
-                  className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center ${
-                    index !== data.monitors.length - 1
-                      ? 'border-b border-gray-700'
-                      : ''
-                  }`}
+                  className="flex flex-col gap-3 rounded-xl border border-gray-700 bg-gray-800 p-5 shadow-md sm:flex-row sm:items-center sm:gap-4"
                   data-testid={`status-monitor-${monitor.id}`}
                 >
                   <div className="flex items-center sm:flex-1">
                     <div
-                      className={`mr-3 h-3 w-3 flex-shrink-0 rounded-full ${
+                      className={`mr-4 h-4 w-4 flex-shrink-0 rounded-full ${
                         monitor.status === 'up'
                           ? 'bg-green-500'
                           : monitor.status === 'down'
@@ -185,11 +416,11 @@ const Status = () => {
                       aria-hidden
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold text-white">
+                      <div className="truncate text-lg font-semibold text-white">
                         {monitor.name}
                       </div>
                       {monitor.description && (
-                        <div className="text-xs text-gray-300">
+                        <div className="mt-1 text-sm text-gray-300">
                           {monitor.description}
                         </div>
                       )}
@@ -198,20 +429,53 @@ const Status = () => {
                           href={monitor.url}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="block truncate text-xs text-gray-500 transition hover:text-indigo-400 hover:underline"
+                          className="mt-1 block truncate text-xs text-gray-500 transition hover:text-indigo-400 hover:underline"
                         >
                           {monitor.url}
                         </a>
                       )}
+                      {(() => {
+                        const report = (reportCounts ?? []).find(
+                          (r) => r.monitorId === monitor.id
+                        );
+                        if (!report || report.count === 0) return null;
+                        return (
+                          <div className="mt-2 flex items-center gap-2 text-xs text-yellow-300">
+                            <ExclamationTriangleIcon className="h-4 w-4 flex-shrink-0" />
+                            <span>
+                              {intl.formatMessage(messages.reportCount, {
+                                count: report.count,
+                              })}
+                            </span>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  resolveReportsForMonitor(monitor.id)
+                                }
+                                title={intl.formatMessage(messages.resolveAll)}
+                                aria-label={intl.formatMessage(
+                                  messages.resolveAll
+                                )}
+                                className="text-yellow-300 transition hover:text-white"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
-                  <Badge badgeType={statusColor} className="self-start sm:ml-2">
+                  <Badge
+                    badgeType={statusColor}
+                    className="self-start text-sm sm:ml-2"
+                  >
                     {statusLabel}
                   </Badge>
                   {monitor.status === 'down' && recoveryEnabled && (
                     <Button
                       buttonType={isSubscribed ? 'ghost' : 'primary'}
-                      buttonSize="sm"
                       type="button"
                       disabled={busy === monitor.id}
                       onClick={() =>
@@ -244,6 +508,65 @@ const Status = () => {
           )}
         </>
       )}
+
+      <Transition
+        as="div"
+        show={reportModalOpen}
+        enter="transition-opacity duration-300"
+        enterFrom="opacity-0"
+        enterTo="opacity-100"
+        leave="transition-opacity duration-300"
+        leaveFrom="opacity-100"
+        leaveTo="opacity-0"
+      >
+        <Modal
+          title={intl.formatMessage(messages.reportTitle)}
+          onCancel={() => setReportModalOpen(false)}
+          onOk={() => submitReport()}
+          okText={
+            reportSubmitting
+              ? intl.formatMessage(messages.reportSubmitting)
+              : intl.formatMessage(messages.reportSubmit)
+          }
+          okButtonType="primary"
+          okDisabled={reportSubmitting || reportSelection.size === 0}
+        >
+          <p className="mb-4 text-sm text-gray-300">
+            {intl.formatMessage(messages.reportDescription)}
+          </p>
+          {data?.monitors.length ? (
+            <ul className="space-y-2">
+              {data.monitors.map((monitor) => {
+                const isChecked = reportSelection.has(monitor.id);
+                return (
+                  <li key={monitor.id}>
+                    <label
+                      htmlFor={`report-monitor-${monitor.id}`}
+                      className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm text-white transition duration-150 ${
+                        isChecked
+                          ? 'border-indigo-500 bg-indigo-600/20'
+                          : 'border-gray-700 bg-gray-800/60 hover:border-gray-500 hover:bg-gray-700/60'
+                      }`}
+                    >
+                      <input
+                        id={`report-monitor-${monitor.id}`}
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleReportSelection(monitor.id)}
+                      />
+                      <span className="truncate">{monitor.name}</span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-400">
+              {intl.formatMessage(messages.noMonitors)}
+            </p>
+          )}
+        </Modal>
+      </Transition>
     </>
   );
 };

@@ -6,7 +6,10 @@ import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
 import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecoverySubscription';
 import { UserPushSubscription } from '@server/entity/UserPushSubscription';
-import { getSettings } from '@server/lib/settings';
+import {
+  getSettings,
+  type UptimeRobotMonitorOverride,
+} from '@server/lib/settings';
 import logger from '@server/logger';
 import webpush from 'web-push';
 
@@ -18,12 +21,16 @@ export interface MonitorSummary {
   defaultName: string;
   /** Optional description set by the admin. */
   description?: string;
+  /** Admin-controlled URL — empty string when the admin checked "hide URL". */
   url: string;
   type: number;
   /** Normalised status: 'up' | 'down' | 'paused' | 'unknown'. */
   status: 'up' | 'down' | 'paused' | 'unknown';
   /** UptimeRobot's raw status code, retained for richer UI. */
   rawStatus: number;
+  /** Admin override flags. Always sent to the admin UI; stripped from public callers. */
+  hideUrl?: boolean;
+  hidden?: boolean;
 }
 
 interface MonitorRecoveryState {
@@ -52,56 +59,88 @@ class UptimeRobotService {
   private fetchError: string | undefined;
   private polling = false;
   private recoveryStates = new Map<number, MonitorRecoveryState>();
+  /**
+   * Wall-clock ms when we most recently observed at least one monitor in
+   * a non-up state. `undefined` means we have never seen a downtime in
+   * the lifetime of this process — the "all healthy for X hours" rule
+   * for announcement expiry treats that case as "we don't know yet" and
+   * falls back to the hard 72h cap.
+   */
+  private lastAnythingDownAt: number | undefined;
+
+  /**
+   * Returns the wall-clock ms timestamp of the most recent non-up
+   * observation. Used by the announcement-expiry rule.
+   */
+  public getLastDowntime(): number | undefined {
+    return this.lastAnythingDownAt;
+  }
+
+  /**
+   * Returns the wall-clock ms timestamp of the most recent observation in
+   * which the given monitor was reported DOWN. Returns `undefined` when
+   * the monitor has never been observed down in this process's lifetime.
+   * Used by the problem-report auto-resolve rule.
+   */
+  public getMonitorLastDown(monitorId: number): number | undefined {
+    return this.recoveryStates.get(monitorId)?.lastDownAt;
+  }
 
   /**
    * Returns the most recently fetched monitor list, ordered according to
    * the admin's configured `monitorOrder` (with any unranked monitors
    * appended at the end in their API order) and with admin overrides
-   * (display name + description) applied.
+   * (display name, description, hideUrl, hidden) applied.
+   *
+   * @param scope `'admin'` returns every monitor including hidden ones, with
+   *              the URL preserved so admins can re-enable it. `'public'`
+   *              drops hidden monitors and blanks the URL when `hideUrl` is
+   *              set.
    */
-  public getMonitors(): MonitorSummary[] {
+  public getMonitors(scope: 'admin' | 'public' = 'public'): MonitorSummary[] {
     const settings = getSettings().uptimerobot;
-    const overrideById = new Map<
-      number,
-      { name?: string; description?: string }
-    >();
+    const overrideById = new Map<number, UptimeRobotMonitorOverride>();
     for (const override of settings.monitorOverrides ?? []) {
       if (Number.isFinite(override.id)) {
-        overrideById.set(override.id, {
-          name: override.name,
-          description: override.description,
-        });
+        overrideById.set(override.id, override);
       }
     }
 
-    const enriched = this.latest.map((m) => {
-      const override = overrideById.get(m.id);
-      return {
-        ...m,
-        name: override?.name?.trim() || m.defaultName,
-        description: override?.description?.trim() || undefined,
-      };
-    });
+    const enriched = this.latest
+      .map((m) => {
+        const override = overrideById.get(m.id);
+        const hideUrl = override?.hideUrl === true;
+        const hidden = override?.hidden === true;
+        return {
+          ...m,
+          name: override?.name?.trim() || m.defaultName,
+          description: override?.description?.trim() || undefined,
+          hideUrl,
+          hidden,
+          url: scope === 'public' && hideUrl ? '' : m.url,
+        };
+      })
+      .filter((m) => (scope === 'public' ? !m.hidden : true));
 
     const order = settings.monitorOrder ?? [];
-    if (!order.length) return enriched;
+    if (order.length) {
+      const indexById = new Map<number, number>();
+      order.forEach((id, idx) => indexById.set(id, idx));
 
-    const indexById = new Map<number, number>();
-    order.forEach((id, idx) => indexById.set(id, idx));
-
-    enriched.sort((a, b) => {
-      const ai = indexById.has(a.id) ? indexById.get(a.id)! : Infinity;
-      const bi = indexById.has(b.id) ? indexById.get(b.id)! : Infinity;
-      if (ai !== bi) return ai - bi;
-      return a.name.localeCompare(b.name);
-    });
+      enriched.sort((a, b) => {
+        const ai = indexById.has(a.id) ? indexById.get(a.id)! : Infinity;
+        const bi = indexById.has(b.id) ? indexById.get(b.id)! : Infinity;
+        if (ai !== bi) return ai - bi;
+        return a.name.localeCompare(b.name);
+      });
+    }
     return enriched;
   }
 
-  public getStatus() {
+  public getStatus(scope: 'admin' | 'public' = 'public') {
     return {
       configured: getSettings().uptimerobot.enabled,
-      monitors: this.getMonitors(),
+      monitors: this.getMonitors(scope),
       lastFetched: this.lastFetched,
       fetchError: this.fetchError,
     };
@@ -153,6 +192,12 @@ class UptimeRobotService {
       this.latest = summaries;
       this.lastFetched = Date.now();
       this.fetchError = undefined;
+
+      // Track the last time anything was non-up so the announcement-expiry
+      // rule can decide whether the system has been "all healthy for N hours".
+      if (summaries.some((m) => m.status === 'down')) {
+        this.lastAnythingDownAt = this.lastFetched;
+      }
 
       await this.processRecoveries(summaries, settings);
     } catch (e) {
