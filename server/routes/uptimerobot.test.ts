@@ -12,7 +12,7 @@ import express from 'express';
 import session from 'express-session';
 import request from 'supertest';
 import authRoutes from './auth';
-import statusRoutes from './status';
+import uptimeRobotRoutes from './uptimerobot';
 
 let app: Express;
 
@@ -28,7 +28,7 @@ function createApp() {
   );
   app.use(checkUser);
   app.use('/auth', authRoutes);
-  app.use('/status', isAuthenticated(), statusRoutes);
+  app.use('/uptimerobot', isAuthenticated(), uptimeRobotRoutes);
   app.use(
     (
       err: { status?: number; message?: string },
@@ -91,15 +91,15 @@ async function loginAs(email: string, password: string) {
   return agent;
 }
 
-describe('GET /status', () => {
+describe('GET /uptimerobot', () => {
   it('returns 403 for unauthenticated requests', async () => {
-    const res = await request(app).get('/status');
+    const res = await request(app).get('/uptimerobot');
     assert.strictEqual(res.status, 403);
   });
 
   it('returns monitors and an empty subscription list for new user', async () => {
     const agent = await loginAs('friend@seerr.dev', 'test1234');
-    const res = await agent.get('/status');
+    const res = await agent.get('/uptimerobot');
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.configured, true);
     assert.strictEqual(res.body.monitors.length, 2);
@@ -108,36 +108,36 @@ describe('GET /status', () => {
 
   it('reports the user’s subscriptions', async () => {
     const agent = await loginAs('friend@seerr.dev', 'test1234');
-    await agent.post('/status/subscribe/1002');
-    const res = await agent.get('/status');
+    await agent.post('/uptimerobot/subscribe/1002');
+    const res = await agent.get('/uptimerobot');
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body.subscribedMonitorIds, [1002]);
   });
 });
 
-describe('POST /status/subscribe/:monitorId', () => {
+describe('POST /uptimerobot/subscribe/:monitorId', () => {
   it('returns 403 for unauthenticated requests', async () => {
-    const res = await request(app).post('/status/subscribe/1002');
+    const res = await request(app).post('/uptimerobot/subscribe/1002');
     assert.strictEqual(res.status, 403);
   });
 
   it('returns 400 for an invalid monitor id', async () => {
     const agent = await loginAs('friend@seerr.dev', 'test1234');
-    const res = await agent.post('/status/subscribe/abc');
+    const res = await agent.post('/uptimerobot/subscribe/abc');
     assert.strictEqual(res.status, 400);
   });
 
   it('returns 404 when the monitor is unknown to the service', async () => {
     const agent = await loginAs('friend@seerr.dev', 'test1234');
-    const res = await agent.post('/status/subscribe/9999');
+    const res = await agent.post('/uptimerobot/subscribe/9999');
     assert.strictEqual(res.status, 404);
   });
 
   it('creates a recovery subscription and is idempotent', async () => {
     const agent = await loginAs('friend@seerr.dev', 'test1234');
-    const first = await agent.post('/status/subscribe/1002');
+    const first = await agent.post('/uptimerobot/subscribe/1002');
     assert.strictEqual(first.status, 204);
-    const second = await agent.post('/status/subscribe/1002');
+    const second = await agent.post('/uptimerobot/subscribe/1002');
     assert.strictEqual(second.status, 204);
 
     const repo = getRepository(UserMonitorRecoverySubscription);
@@ -147,20 +147,20 @@ describe('POST /status/subscribe/:monitorId', () => {
   });
 });
 
-describe('DELETE /status/subscribe/:monitorId', () => {
+describe('DELETE /uptimerobot/subscribe/:monitorId', () => {
   it('returns 204 even when no subscription exists (idempotent)', async () => {
     const agent = await loginAs('friend@seerr.dev', 'test1234');
-    const res = await agent.delete('/status/subscribe/1002');
+    const res = await agent.delete('/uptimerobot/subscribe/1002');
     assert.strictEqual(res.status, 204);
   });
 
   it('removes an existing subscription', async () => {
     const agent = await loginAs('friend@seerr.dev', 'test1234');
-    await agent.post('/status/subscribe/1002');
+    await agent.post('/uptimerobot/subscribe/1002');
     const before = await getRepository(UserMonitorRecoverySubscription).find();
     assert.strictEqual(before.length, 1);
 
-    const res = await agent.delete('/status/subscribe/1002');
+    const res = await agent.delete('/uptimerobot/subscribe/1002');
     assert.strictEqual(res.status, 204);
 
     const after = await getRepository(UserMonitorRecoverySubscription).find();
@@ -169,10 +169,10 @@ describe('DELETE /status/subscribe/:monitorId', () => {
 
   it('does not affect another user’s subscription', async () => {
     const friend = await loginAs('friend@seerr.dev', 'test1234');
-    await friend.post('/status/subscribe/1002');
+    await friend.post('/uptimerobot/subscribe/1002');
 
     const admin = await loginAs('admin@seerr.dev', 'test1234');
-    const res = await admin.delete('/status/subscribe/1002');
+    const res = await admin.delete('/uptimerobot/subscribe/1002');
     assert.strictEqual(res.status, 204);
 
     // Friend's subscription should still exist

@@ -29,7 +29,7 @@ const StatusBanner = () => {
   const { addToast } = useToasts();
   const [busy, setBusy] = useState<number | null>(null);
 
-  const { data, mutate } = useSWR<StatusResponse>('/api/v1/status', {
+  const { data, mutate } = useSWR<StatusResponse>('/api/v1/uptimerobot', {
     refreshInterval: 60000,
   });
 
@@ -44,9 +44,9 @@ const StatusBanner = () => {
     setBusy(monitorId);
     try {
       if (isSubscribed) {
-        await axios.delete(`/api/v1/status/subscribe/${monitorId}`);
+        await axios.delete(`/api/v1/uptimerobot/subscribe/${monitorId}`);
       } else {
-        await axios.post(`/api/v1/status/subscribe/${monitorId}`);
+        await axios.post(`/api/v1/uptimerobot/subscribe/${monitorId}`);
       }
       await mutate();
     } catch {

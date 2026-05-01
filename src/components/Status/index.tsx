@@ -71,7 +71,9 @@ const Status = () => {
     data,
     error,
     mutate: revalidate,
-  } = useSWR<StatusResponse>('/api/v1/status', { refreshInterval: 30000 });
+  } = useSWR<StatusResponse>('/api/v1/uptimerobot', {
+    refreshInterval: 30000,
+  });
 
   const recoveryEnabled = true; // Server omits monitors entirely if not enabled
   // — relies on the per-server `recoveryNotificationsEnabled` flag, but the
@@ -87,13 +89,13 @@ const Status = () => {
     setBusy(monitorId);
     try {
       if (isSubscribed) {
-        await axios.delete(`/api/v1/status/subscribe/${monitorId}`);
+        await axios.delete(`/api/v1/uptimerobot/subscribe/${monitorId}`);
         addToast(intl.formatMessage(messages.unsubscribeSuccess, { name }), {
           appearance: 'success',
           autoDismiss: true,
         });
       } else {
-        await axios.post(`/api/v1/status/subscribe/${monitorId}`);
+        await axios.post(`/api/v1/uptimerobot/subscribe/${monitorId}`);
         addToast(intl.formatMessage(messages.subscribeSuccess, { name }), {
           appearance: 'success',
           autoDismiss: true,
