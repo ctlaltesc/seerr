@@ -117,6 +117,27 @@ export interface MetadataSettings {
   anime: MetadataProviderType;
 }
 
+export interface UptimeRobotSettings {
+  enabled: boolean;
+  apiKey: string;
+  /**
+   * The desired display order on the status page, expressed as a list of
+   * UptimeRobot monitor IDs. Monitors that are not in the list fall back to
+   * the order returned by the UptimeRobot API.
+   */
+  monitorOrder: number[];
+  recoveryNotificationsEnabled: boolean;
+  /**
+   * How long (in minutes) a monitor must continuously stay UP after recovery
+   * before "notify me when it's back up" subscribers are pushed.
+   */
+  recoveryStableMinutes: number;
+  /**
+   * How frequently (in seconds) we poll the UptimeRobot API. Minimum 30s.
+   */
+  pollIntervalSeconds: number;
+}
+
 export interface ProxySettings {
   enabled: boolean;
   hostname: string;
@@ -359,7 +380,8 @@ export type JobId =
   | 'jellyfin-full-scan'
   | 'image-cache-cleanup'
   | 'availability-sync'
-  | 'process-blocklisted-tags';
+  | 'process-blocklisted-tags'
+  | 'uptimerobot-poll';
 
 export interface AllSettings {
   clientId: string;
@@ -377,6 +399,7 @@ export interface AllSettings {
   jobs: Record<JobId, JobSettings>;
   network: NetworkSettings;
   metadataSettings: MetadataSettings;
+  uptimerobot: UptimeRobotSettings;
   migrations: string[];
 }
 
@@ -445,6 +468,14 @@ class Settings {
       metadataSettings: {
         tv: MetadataProviderType.TMDB,
         anime: MetadataProviderType.TMDB,
+      },
+      uptimerobot: {
+        enabled: false,
+        apiKey: '',
+        monitorOrder: [],
+        recoveryNotificationsEnabled: true,
+        recoveryStableMinutes: 10,
+        pollIntervalSeconds: 60,
       },
       radarr: [],
       sonarr: [],
@@ -592,6 +623,9 @@ class Settings {
         'process-blocklisted-tags': {
           schedule: '0 30 1 */7 * *',
         },
+        'uptimerobot-poll': {
+          schedule: '0 * * * * *',
+        },
       },
       network: {
         csrfProtection: false,
@@ -662,6 +696,14 @@ class Settings {
       this.data.metadataSettings,
       data
     );
+  }
+
+  get uptimerobot(): UptimeRobotSettings {
+    return this.data.uptimerobot;
+  }
+
+  set uptimerobot(data: UptimeRobotSettings) {
+    this.data.uptimerobot = mergeSettings(this.data.uptimerobot, data);
   }
 
   get radarr(): RadarrSettings[] {

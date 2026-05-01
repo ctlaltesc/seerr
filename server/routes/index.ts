@@ -40,6 +40,7 @@ import personRoutes from './person';
 import requestRoutes from './request';
 import searchRoutes from './search';
 import serviceRoutes from './service';
+import statusRoutes from './status';
 import tvRoutes from './tv';
 import user from './user';
 
@@ -171,6 +172,7 @@ router.use('/collection', isAuthenticated(), collectionRoutes);
 router.use('/service', isAuthenticated(), serviceRoutes);
 router.use('/issue', isAuthenticated(), issueRoutes);
 router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
+router.use('/status', isAuthenticated(), statusRoutes);
 router.use('/auth', authRoutes);
 router.use(
   '/overrideRule',

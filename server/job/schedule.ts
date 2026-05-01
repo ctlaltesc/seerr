@@ -13,6 +13,7 @@ import { radarrScanner } from '@server/lib/scanners/radarr';
 import { sonarrScanner } from '@server/lib/scanners/sonarr';
 import type { JobId } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
+import uptimeRobotService from '@server/lib/uptimerobot';
 import watchlistSync from '@server/lib/watchlistsync';
 import logger from '@server/logger';
 import schedule from 'node-schedule';
@@ -257,6 +258,25 @@ export const startJobs = (): void => {
     }),
     running: () => blocklistedTagsProcessor.status().running,
     cancelFn: () => blocklistedTagsProcessor.cancel(),
+  });
+
+  scheduledJobs.push({
+    id: 'uptimerobot-poll',
+    name: 'UptimeRobot Status Poll',
+    type: 'process',
+    interval: 'seconds',
+    cronSchedule: jobs['uptimerobot-poll'].schedule,
+    job: schedule.scheduleJob(jobs['uptimerobot-poll'].schedule, () => {
+      // Skip silently when UptimeRobot is not configured to keep the job
+      // log noise-free.
+      if (!getSettings().uptimerobot.enabled) return;
+      uptimeRobotService.poll().catch((e) => {
+        logger.error('Failed to run UptimeRobot poll', {
+          label: 'UptimeRobot',
+          errorMessage: e.message,
+        });
+      });
+    }),
   });
 
   logger.info('Scheduled jobs loaded', { label: 'Jobs' });
