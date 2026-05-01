@@ -79,7 +79,7 @@ uptimeRobotRoutes.post<
         : current.monitorOrder,
       monitorOverrides:
         req.body.monitorOverrides === undefined
-          ? (current.monitorOverrides ?? {})
+          ? (current.monitorOverrides ?? [])
           : sanitizeOverrides(req.body.monitorOverrides),
       recoveryNotificationsEnabled:
         req.body.recoveryNotificationsEnabled ??
