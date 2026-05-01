@@ -4302,6 +4302,57 @@ paths:
       responses:
         '204':
           description: Successfully registered push subscription
+  /user/broadcast:
+    post:
+      summary: Broadcast a web push notification
+      description: |
+        Sends a custom web push notification to all subscribed users, or to a
+        selected subset of users when `userIds` is provided. Requires the admin
+        permission.
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                  maxLength: 120
+                  description: The notification title.
+                message:
+                  type: string
+                  maxLength: 500
+                  description: The notification body. Optional.
+                userIds:
+                  type: array
+                  description: |
+                    Optional list of user IDs that should receive the broadcast.
+                    Omit to broadcast to all users with active push subscriptions.
+                  items:
+                    type: integer
+              required:
+                - subject
+      responses:
+        '200':
+          description: Broadcast dispatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: integer
+                  failed:
+                    type: integer
+                  recipients:
+                    type: integer
+        '400':
+          description: Validation error
+        '500':
+          description: Server error or web push not configured
   /user/{userId}/pushSubscriptions:
     get:
       summary: Get all web push notification settings for a user

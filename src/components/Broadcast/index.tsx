@@ -2,7 +2,6 @@ import Alert from '@app/components/Common/Alert';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
-import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import { Permission, useUser } from '@app/hooks/useUser';
@@ -116,8 +115,10 @@ const Broadcast = () => {
       />
 
       <div className="mb-6">
-        <Header>{intl.formatMessage(messages.broadcastTitle)}</Header>
-        <p className="description mt-2">
+        <h3 className="heading">
+          {intl.formatMessage(messages.broadcastTitle)}
+        </h3>
+        <p className="description">
           {intl.formatMessage(messages.broadcastDescription)}
         </p>
       </div>
