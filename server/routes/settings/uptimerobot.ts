@@ -34,7 +34,9 @@ uptimeRobotRoutes.post<
       enabled: req.body.enabled ?? current.enabled,
       // An empty string or null clears the API key. `undefined` leaves it as-is.
       apiKey:
-        req.body.apiKey === undefined ? current.apiKey : (req.body.apiKey ?? ''),
+        req.body.apiKey === undefined
+          ? current.apiKey
+          : (req.body.apiKey ?? ''),
       monitorOrder: Array.isArray(req.body.monitorOrder)
         ? req.body.monitorOrder
             .map((id) => Number(id))
@@ -89,9 +91,7 @@ uptimeRobotRoutes.post<
 uptimeRobotRoutes.post<never, unknown, { apiKey?: string }>(
   '/test',
   async (req, res, next) => {
-    const apiKey = (
-      req.body.apiKey ?? getSettings().uptimerobot.apiKey
-    ).trim();
+    const apiKey = (req.body.apiKey ?? getSettings().uptimerobot.apiKey).trim();
 
     if (!apiKey) {
       return next({
