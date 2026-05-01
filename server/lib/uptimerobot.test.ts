@@ -220,6 +220,47 @@ describe('UptimeRobotService', () => {
     }
   });
 
+  it('uses the admin override for the recovery push subject and body', async () => {
+    await seedRecoverySubscription('friend@seerr.dev', 700);
+    await seedPushSubscription('friend@seerr.dev', 'https://endpoint.test/o');
+
+    getSettings().uptimerobot.monitorOverrides = [
+      { id: 700, name: 'Plex Server', description: 'Streaming for the family' },
+    ];
+
+    const realDateNow = Date.now;
+    let now = 1_700_000_000_000;
+    Date.now = () => now;
+
+    try {
+      mockMonitorsOnce([
+        fakeMonitor(700, 'plex.example', UPTIMEROBOT_STATUS.DOWN),
+      ]);
+      await uptimeRobotService.poll();
+
+      now += 1_000;
+      mockMonitorsOnce([
+        fakeMonitor(700, 'plex.example', UPTIMEROBOT_STATUS.UP),
+      ]);
+      await uptimeRobotService.poll();
+
+      now += stableMs + 1_000;
+      mockMonitorsOnce([
+        fakeMonitor(700, 'plex.example', UPTIMEROBOT_STATUS.UP),
+      ]);
+      await uptimeRobotService.poll();
+      assert.strictEqual(sendNotificationMock.callCount(), 1);
+
+      const payload = JSON.parse(
+        (sendNotificationMock.calls[0].arguments[1] as Buffer).toString('utf-8')
+      );
+      assert.strictEqual(payload.subject, 'Plex Server is back online');
+      assert.strictEqual(payload.message, 'Streaming for the family');
+    } finally {
+      Date.now = realDateNow;
+    }
+  });
+
   it('cancels a pending recovery if the monitor goes back down', async () => {
     await seedRecoverySubscription('friend@seerr.dev', 777);
     await seedPushSubscription('friend@seerr.dev', 'https://endpoint.test/c');

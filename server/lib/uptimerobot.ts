@@ -270,11 +270,20 @@ class UptimeRobotService {
           .getMany()
       : [];
 
+    // Use the admin-overridden display name and description so the push
+    // matches what users see in the UI.
+    const override = settings.uptimerobot.monitorOverrides?.find(
+      (o) => o.id === monitor.id
+    );
+    const displayName = override?.name?.trim() || monitor.defaultName;
+    const description = override?.description?.trim();
+
     const payload = Buffer.from(
       JSON.stringify({
         notificationType: 'MONITOR_RECOVERED',
-        subject: `${monitor.name} is back online`,
-        message: 'The service is back up. Thanks for your patience!',
+        subject: `${displayName} is back online`,
+        message:
+          description ?? 'The service is back up. Thanks for your patience!',
         actionUrl: '/status',
         actionUrlTitle: 'View Status',
       }),
@@ -309,7 +318,7 @@ class UptimeRobotService {
     logger.info('Dispatched monitor recovery notifications', {
       label: 'UptimeRobot',
       monitorId: monitor.id,
-      monitorName: monitor.name,
+      monitorName: displayName,
       recipients: userIds.length,
       sent,
       failed,
