@@ -53,6 +53,8 @@ interface MonitorOverride {
   id: number;
   name?: string;
   description?: string;
+  hideUrl?: boolean;
+  hidden?: boolean;
 }
 
 interface SettingsResponse {
@@ -121,6 +123,8 @@ const SettingsStatus = () => {
           id: o.id,
           name: o.name ?? '',
           description: o.description ?? '',
+          hideUrl: !!o.hideUrl,
+          hidden: !!o.hidden,
         };
       }
     }
@@ -154,6 +158,20 @@ const SettingsStatus = () => {
     setOverrides((current) => ({
       ...current,
       [id]: { ...(current[id] ?? { id }), id, description },
+    }));
+  };
+
+  const handleHideUrlChange = (id: number, hideUrl: boolean) => {
+    setOverrides((current) => ({
+      ...current,
+      [id]: { ...(current[id] ?? { id }), id, hideUrl },
+    }));
+  };
+
+  const handleHiddenChange = (id: number, hidden: boolean) => {
+    setOverrides((current) => ({
+      ...current,
+      [id]: { ...(current[id] ?? { id }), id, hidden },
     }));
   };
 
@@ -205,8 +223,10 @@ const SettingsStatus = () => {
                 id: o.id,
                 name: o.name?.trim() || undefined,
                 description: o.description?.trim() || undefined,
+                hideUrl: o.hideUrl ? true : undefined,
+                hidden: o.hidden ? true : undefined,
               }))
-              .filter((o) => o.name || o.description);
+              .filter((o) => o.name || o.description || o.hideUrl || o.hidden);
 
             const payload: Partial<SettingsResponse> & { apiKey?: string } = {
               enabled: values.enabled,
@@ -351,11 +371,11 @@ const SettingsStatus = () => {
               <div className="form-input-area">
                 <div className="form-input-field">
                   <Field
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     id="recoveryStableMinutes"
                     name="recoveryStableMinutes"
-                    min={0}
-                    max={1440}
                     className="short"
                   />
                 </div>
@@ -372,11 +392,11 @@ const SettingsStatus = () => {
               <div className="form-input-area">
                 <div className="form-input-field">
                   <Field
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     id="pollIntervalSeconds"
                     name="pollIntervalSeconds"
-                    min={30}
-                    max={3600}
                     className="short"
                   />
                 </div>
@@ -415,9 +435,13 @@ const SettingsStatus = () => {
                               status: monitor.status,
                               name: override?.name ?? '',
                               description: override?.description ?? '',
+                              hideUrl: !!override?.hideUrl,
+                              hidden: !!override?.hidden,
                             }}
                             onNameChange={handleNameChange}
                             onDescriptionChange={handleDescriptionChange}
+                            onHideUrlChange={handleHideUrlChange}
+                            onHiddenChange={handleHiddenChange}
                             onMove={handleMove}
                           />
                         );

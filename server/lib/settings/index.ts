@@ -124,6 +124,10 @@ export interface UptimeRobotMonitorOverride {
   name?: string;
   /** Short description shown next to the monitor on the status page. */
   description?: string;
+  /** When true, the URL is suppressed on the public status page + banner. */
+  hideUrl?: boolean;
+  /** When true, the monitor is omitted entirely from public-facing surfaces. */
+  hidden?: boolean;
 }
 
 export interface UptimeRobotSettings {

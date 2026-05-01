@@ -2275,6 +2275,62 @@ paths:
           description: Subscription removed (or did not exist).
         '400':
           description: Invalid monitor id.
+  /uptimerobot/announcements:
+    get:
+      summary: List active status-page announcements
+      description: |
+        Returns up to 25 active broadcast announcements posted to the status
+        page. Auto-expiry: anything older than 72h is dropped. Anything older
+        than 24h is also dropped if every monitor has been observed up for
+        the last 24h. Visible to any logged-in user.
+      tags:
+        - uptimerobot
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    subject:
+                      type: string
+                    message:
+                      type: string
+                    postedAt:
+                      type: string
+                      format: date-time
+                    postedBy:
+                      type: object
+                      nullable: true
+                      properties:
+                        id:
+                          type: integer
+                        displayName:
+                          type: string
+                        avatar:
+                          type: string
+  /uptimerobot/announcements/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+    delete:
+      summary: Retract a status-page announcement
+      description: Admin-only. Removes the announcement immediately.
+      tags:
+        - uptimerobot
+      responses:
+        '204':
+          description: Announcement removed (or did not exist).
+        '400':
+          description: Invalid announcement id.
   /settings/main:
     get:
       summary: Get main settings
@@ -4572,6 +4628,12 @@ paths:
                     Omit to broadcast to all users with active push subscriptions.
                   items:
                     type: integer
+                postToStatus:
+                  type: boolean
+                  description: |
+                    When true (default), the broadcast is also posted to the
+                    status page as an announcement that auto-expires after 72h
+                    (or sooner if all monitors stay healthy for 24h).
               required:
                 - subject
       responses:
@@ -4588,6 +4650,9 @@ paths:
                     type: integer
                   recipients:
                     type: integer
+                  announcementId:
+                    type: integer
+                    description: ID of the persisted announcement when `postToStatus` was true.
         '400':
           description: Validation error
         '500':

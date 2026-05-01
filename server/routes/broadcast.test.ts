@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { before, beforeEach, describe, it, mock } from 'node:test';
 
 import { getRepository } from '@server/datasource';
+import { Announcement } from '@server/entity/Announcement';
 import { User } from '@server/entity/User';
 import { UserPushSubscription } from '@server/entity/UserPushSubscription';
 import { getSettings } from '@server/lib/settings';
@@ -189,10 +190,36 @@ describe('POST /user/broadcast', () => {
     const agent = await loginAs('admin@seerr.dev', 'test1234');
     const res = await agent
       .post('/user/broadcast')
-      .send({ subject: 'maintenance' });
+      .send({ subject: 'maintenance', postToStatus: false });
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, { sent: 0, failed: 0, recipients: 0 });
     assert.strictEqual(sendNotificationMock.callCount(), 0);
+  });
+
+  it('persists an announcement when postToStatus is true (default)', async () => {
+    const agent = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await agent
+      .post('/user/broadcast')
+      .send({ subject: 'Server maintenance', message: 'Back at 8pm' });
+    assert.strictEqual(res.status, 200);
+    assert.ok(typeof res.body.announcementId === 'number');
+
+    const stored = await getRepository(Announcement).find();
+    assert.strictEqual(stored.length, 1);
+    assert.strictEqual(stored[0].subject, 'Server maintenance');
+    assert.strictEqual(stored[0].message, 'Back at 8pm');
+  });
+
+  it('does not persist an announcement when postToStatus is false', async () => {
+    const agent = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await agent
+      .post('/user/broadcast')
+      .send({ subject: 'silent', postToStatus: false });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.announcementId, undefined);
+
+    const stored = await getRepository(Announcement).find();
+    assert.strictEqual(stored.length, 0);
   });
 
   it('broadcasts to all subscriptions when userIds is omitted', async () => {

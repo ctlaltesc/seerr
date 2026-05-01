@@ -5,6 +5,7 @@ import { MediaType } from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
 import { UserType } from '@server/constants/user';
 import dataSource, { getRepository } from '@server/datasource';
+import { Announcement } from '@server/entity/Announcement';
 import Media from '@server/entity/Media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import { User } from '@server/entity/User';
@@ -327,12 +328,19 @@ router.post<
 
 router.post<
   never,
-  { sent: number; failed: number; recipients: number },
-  { subject: string; message?: string; userIds?: number[] }
+  { sent: number; failed: number; recipients: number; announcementId?: number },
+  {
+    subject: string;
+    message?: string;
+    userIds?: number[];
+    postToStatus?: boolean;
+  }
 >('/broadcast', isAuthenticated(Permission.ADMIN), async (req, res, next) => {
   try {
     const subject = (req.body.subject ?? '').trim();
     const message = (req.body.message ?? '').trim() || undefined;
+    // Default to true so the existing UI behaviour matches the new feature.
+    const postToStatus = req.body.postToStatus !== false;
 
     if (!subject) {
       return next({
@@ -492,10 +500,33 @@ router.post<
       audience: userIdsProvided ? 'selected' : 'all',
     });
 
+    let announcementId: number | undefined;
+    if (postToStatus) {
+      try {
+        const announcementRepo = getRepository(Announcement);
+        const saved = await announcementRepo.save(
+          new Announcement({
+            subject,
+            message,
+            postedBy: req.user,
+          })
+        );
+        announcementId = saved.id;
+      } catch (e) {
+        // Persisting the announcement is best-effort — the push has
+        // already gone out, so we just log and carry on.
+        logger.warn('Failed to persist announcement for broadcast', {
+          label: 'API',
+          errorMessage: (e as Error).message,
+        });
+      }
+    }
+
     return res.status(200).json({
       sent,
       failed,
       recipients: recipientIds.size,
+      announcementId,
     });
   } catch (e) {
     logger.error('Failed to send broadcast push notification', {
