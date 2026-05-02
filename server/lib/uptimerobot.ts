@@ -3,6 +3,7 @@ import UptimeRobotAPI, {
   type UptimeRobotMonitor,
 } from '@server/api/uptimerobot';
 import { getRepository } from '@server/datasource';
+import { ProblemReport } from '@server/entity/ProblemReport';
 import { User } from '@server/entity/User';
 import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecoverySubscription';
 import { UserPushSubscription } from '@server/entity/UserPushSubscription';
@@ -12,6 +13,7 @@ import {
   type UptimeRobotMonitorOverride,
 } from '@server/lib/settings';
 import logger from '@server/logger';
+import { IsNull } from 'typeorm';
 import webpush from 'web-push';
 
 export interface MonitorSummary {
@@ -287,6 +289,8 @@ class UptimeRobotService {
       seen.add(monitor.id);
       const state = this.recoveryStates.get(monitor.id) ?? {};
 
+      const wasDown = !!state.lastDownAt && !state.upSince;
+
       if (monitor.status === 'down') {
         state.lastDownAt = now;
         state.upSince = undefined;
@@ -299,6 +303,21 @@ class UptimeRobotService {
       }
 
       this.recoveryStates.set(monitor.id, state);
+
+      // First poll where the monitor flipped from down to up: clear any
+      // active user-reports right away so people stop seeing stale "X
+      // others reporting" badges. Independent of the recovery-stable
+      // window — if the service is back up we always want to wipe the
+      // reports.
+      if (wasDown && monitor.status === 'up') {
+        await this.clearActiveReportsForMonitor(monitor.id).catch((e) => {
+          logger.warn('Failed to clear active reports on recovery', {
+            label: 'UptimeRobot',
+            monitorId: monitor.id,
+            errorMessage: (e as Error).message,
+          });
+        });
+      }
 
       if (!settings.recoveryNotificationsEnabled) continue;
       if (monitor.status !== 'up') continue;
@@ -429,6 +448,72 @@ class UptimeRobotService {
 
     // Consume the recovery subscriptions — they are one-shot.
     await subRepo.remove(subscriptions);
+  }
+
+  /**
+   * Mark every active problem report for the given monitor as resolved.
+   * Returns the number of rows that were just resolved (0 when none).
+   */
+  public async clearActiveReportsForMonitor(
+    monitorId: number
+  ): Promise<number> {
+    const repo = getRepository(ProblemReport);
+    const rows = await repo.find({
+      where: { monitorId, resolvedAt: IsNull() },
+    });
+    if (!rows.length) return 0;
+    const resolvedAt = new Date();
+    await repo.save(rows.map((r) => Object.assign(r, { resolvedAt })));
+    return rows.length;
+  }
+
+  /**
+   * Prime the recovery state for a monitor at subscription time so that
+   * users who tap "Notify me" still get alerted even if the service
+   * never observed the monitor as down (e.g. process restarted between
+   * the down event and the user subscribing). No-op when the monitor is
+   * currently observed up — there's nothing to recover from.
+   */
+  public primeRecovery(monitorId: number): void {
+    const monitor = this.latest.find((m) => m.id === monitorId);
+    if (!monitor) return;
+    if (monitor.status === 'up') return;
+    const state = this.recoveryStates.get(monitorId) ?? {};
+    if (!state.lastDownAt) {
+      state.lastDownAt = Date.now();
+      state.upSince = undefined;
+      this.recoveryStates.set(monitorId, state);
+    }
+  }
+
+  /**
+   * Dispatch the recovery web push for a single monitor right now, without
+   * waiting for the natural recovery-stable window. Called from the
+   * `/uptimerobot/override` route when an admin pins the monitor back to
+   * `operational`. Report-clearing is the route's responsibility (it
+   * awaits `clearActiveReportsForMonitor` directly) — this method only
+   * handles the push side.
+   */
+  public async fireManualRecovery(monitorId: number): Promise<void> {
+    const monitor = this.latest.find((m) => m.id === monitorId);
+    if (!monitor) return;
+
+    // Reset recovery state — the override is the source of truth now.
+    this.recoveryStates.set(monitorId, {});
+
+    try {
+      await this.dispatchRecoveryNotifications({
+        ...monitor,
+        // Force "up" semantics so the dispatch payload reads naturally.
+        status: 'up',
+      });
+    } catch (e) {
+      logger.error('Failed to dispatch manual recovery notifications', {
+        label: 'UptimeRobot',
+        monitorId,
+        errorMessage: (e as Error).message,
+      });
+    }
   }
 }
 

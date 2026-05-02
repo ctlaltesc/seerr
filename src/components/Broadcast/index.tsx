@@ -5,10 +5,17 @@ import CachedImage from '@app/components/Common/CachedImage';
 import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
+import MonitorOverrideModal, {
+  type MonitorOption,
+} from '@app/components/MonitorOverrideModal';
+import type { StatusResponse } from '@app/components/Status';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
-import { MegaphoneIcon } from '@heroicons/react/24/outline';
+import {
+  AdjustmentsHorizontalIcon,
+  MegaphoneIcon,
+} from '@heroicons/react/24/outline';
 import type { UserResultsResponse } from '@server/interfaces/api/userInterfaces';
 import { hasPermission } from '@server/lib/permissions';
 import axios from 'axios';
@@ -21,9 +28,12 @@ import * as Yup from 'yup';
 
 const messages = defineMessages('components.Broadcast', {
   broadcast: 'Broadcast',
-  broadcastTitle: 'Broadcast Notification',
+  broadcastTitle: 'Broadcast',
   broadcastDescription:
     'Send a custom web push notification to a selection of users or to everyone with push notifications enabled.',
+  overrideStatus: 'Override service status',
+  overrideStatusTip:
+    'Open the manual-status modal to pin a service to Operational, Maintenance, Degraded, etc. Useful when announcing planned maintenance.',
   subject: 'Title',
   subjectPlaceholder: 'Server Maintenance',
   subjectTip: 'The notification headline that recipients will see.',
@@ -81,7 +91,27 @@ const Broadcast = () => {
     '/api/v1/user?take=1000&sort=displayname&sortDirection=asc'
   );
 
+  const { data: statusData, mutate: revalidateStatus } = useSWR<StatusResponse>(
+    '/api/v1/uptimerobot'
+  );
+
   const allUsers = useMemo(() => usersData?.results ?? [], [usersData]);
+
+  // The override modal opens to a "blank" picker on Broadcast — admins
+  // pick the service inside the modal. Use a sentinel monitor object so
+  // the modal's `monitor` prop is non-null (which is what controls the
+  // open/closed state).
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const overrideMonitors: MonitorOption[] = useMemo(
+    () =>
+      (statusData?.monitors ?? []).map((m) => ({
+        id: m.id,
+        name: m.name,
+        manualStatus: m.manualStatus,
+        manualStatusUntil: m.manualStatusUntil,
+      })),
+    [statusData]
+  );
 
   const toggleUser = (userId: number) => {
     setSelectedUserIds((prev) =>
@@ -467,8 +497,18 @@ const Broadcast = () => {
             </div>
 
             <div className="actions">
-              <div className="flex justify-end">
-                <span className="ml-3 inline-flex rounded-md shadow-sm">
+              <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                <Button
+                  buttonType="ghost"
+                  type="button"
+                  onClick={() => setOverrideOpen(true)}
+                  disabled={overrideMonitors.length === 0}
+                  data-testid="broadcast-open-override"
+                >
+                  <AdjustmentsHorizontalIcon />
+                  <span>{intl.formatMessage(messages.overrideStatus)}</span>
+                </Button>
+                <span className="inline-flex rounded-md shadow-sm">
                   <Button
                     buttonType="primary"
                     type="submit"
@@ -488,10 +528,21 @@ const Broadcast = () => {
                   </Button>
                 </span>
               </div>
+              <p className="mt-2 text-xs text-gray-500">
+                {intl.formatMessage(messages.overrideStatusTip)}
+              </p>
             </div>
           </Form>
         )}
       </Formik>
+
+      <MonitorOverrideModal
+        isOpen={overrideOpen}
+        presetMonitor={null}
+        monitors={overrideMonitors}
+        onClose={() => setOverrideOpen(false)}
+        onApplied={() => revalidateStatus()}
+      />
     </>
   );
 };

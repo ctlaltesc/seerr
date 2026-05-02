@@ -14,6 +14,7 @@ import type { Express } from 'express';
 import express from 'express';
 import session from 'express-session';
 import request from 'supertest';
+import { IsNull } from 'typeorm';
 import authRoutes from './auth';
 import uptimeRobotRoutes from './uptimerobot';
 
@@ -408,6 +409,64 @@ describe('POST /uptimerobot/override', () => {
     assert.strictEqual(ov?.name, 'Custom');
     assert.strictEqual(ov?.hideFromReports, true);
     assert.strictEqual(ov?.manualStatus, undefined);
+  });
+
+  it('clears active reports when status is set to operational', async () => {
+    // Seed monitor 1002 (which the mock reports as down) with an active
+    // problem report, then have an admin pin it operational.
+    const friend = await getRepository(User).findOneOrFail({
+      where: { email: 'friend@seerr.dev' },
+    });
+    await getRepository(ProblemReport).save(
+      new ProblemReport({
+        reporter: friend,
+        monitorId: 1002,
+        monitorNameSnapshot: 'Web',
+        monitorStatusAtReport: 'down',
+      })
+    );
+
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1002, status: 'operational', minutes: 30 });
+    assert.strictEqual(res.status, 200);
+
+    // The route awaits `clearActiveReportsForMonitor` before responding,
+    // so by the time we get a 200 the reports are already resolved.
+    const stillActive = await getRepository(ProblemReport).find({
+      where: { resolvedAt: IsNull() },
+    });
+    assert.strictEqual(stillActive.length, 0);
+  });
+});
+
+describe('DELETE /uptimerobot/suppression', () => {
+  it('rejects non-admin users with 403', async () => {
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await friend.delete('/uptimerobot/suppression');
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('clears an active suppression window', async () => {
+    const settings = getSettings();
+    settings.uptimerobot.reportsSuppressedUntil = Date.now() + 60 * 60_000;
+
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin.delete('/uptimerobot/suppression');
+    assert.strictEqual(res.status, 204);
+    assert.strictEqual(
+      getSettings().uptimerobot.reportsSuppressedUntil,
+      undefined
+    );
+  });
+
+  it('is idempotent when no suppression is active', async () => {
+    const settings = getSettings();
+    settings.uptimerobot.reportsSuppressedUntil = undefined;
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin.delete('/uptimerobot/suppression');
+    assert.strictEqual(res.status, 204);
   });
 });
 

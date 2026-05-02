@@ -2404,6 +2404,18 @@ paths:
           description: Invalid payload.
         '404':
           description: Monitor not found.
+  /uptimerobot/suppression:
+    delete:
+      summary: Clear an active report-suppression window
+      description: |
+        Admin-only. Lifts a previously set "suppress problem reports for
+        N minutes" window so users can file reports again. Idempotent —
+        returns 204 even when no suppression was active.
+      tags:
+        - uptimerobot
+      responses:
+        '204':
+          description: Suppression cleared (or none was active).
   /uptimerobot/reports:
     get:
       summary: List active per-monitor problem report counts
