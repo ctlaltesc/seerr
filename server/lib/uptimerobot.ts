@@ -41,7 +41,11 @@ export interface MonitorSummary {
   manualStatus?: UptimeRobotManualStatus;
   /** Epoch ms after which the manual status is ignored. */
   manualStatusUntil?: number;
-  /** When true, omit from the user-facing report modal. Admin scope only. */
+  /**
+   * When true, the monitor is excluded from the user-facing report modal.
+   * Surfaced on both scopes so the public client can filter the modal
+   * locally; the server still re-validates on POST /reports.
+   */
   hideFromReports?: boolean;
 }
 
@@ -165,7 +169,7 @@ class UptimeRobotService {
           description: override?.description?.trim() || undefined,
           hideUrl,
           hidden,
-          hideFromReports: scope === 'admin' ? hideFromReports : undefined,
+          hideFromReports,
           url: scope === 'public' && hideUrl ? '' : m.url,
           status: manualStatus
             ? manualStatusToNormalized(manualStatus)

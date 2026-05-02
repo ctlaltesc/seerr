@@ -50,7 +50,7 @@ const messages = defineMessages('components.Status', {
     'Pin {name} to a fixed status for the next few minutes. Auto-clears once the duration elapses.',
   overrideStatusLabel: 'Status',
   overrideMinutesLabel: 'Duration (minutes)',
-  overrideNone: 'No override (auto)',
+  overrideNone: 'Automatic',
   overrideSubmit: 'Apply override',
   overrideSubmitting: 'Applying…',
   overrideClear: 'Clear override',
@@ -634,7 +634,7 @@ const Status = () => {
                       <PencilSquareIcon />
                     </Button>
                   )}
-                  {monitor.status === 'down' && recoveryEnabled && (
+                  {monitor.status === 'down' && recoveryEnabled && !isAdmin && (
                     <Button
                       buttonType={isSubscribed ? 'ghost' : 'primary'}
                       type="button"

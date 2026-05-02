@@ -16,7 +16,7 @@ import useSWR from 'swr';
 const messages = defineMessages('components.StatusBanner', {
   servicesDown:
     '{count, plural, one {# service is currently down} other {# services are currently down}}',
-  notifyMe: 'Notify me when it’s back up',
+  notifyMe: 'Notify me',
   notifying: 'Subscribed',
   cancel: 'Cancel',
   viewStatus: 'View status page',

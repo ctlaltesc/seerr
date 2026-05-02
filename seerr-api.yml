@@ -2248,6 +2248,9 @@ paths:
                         manualStatusUntil:
                           type: integer
                           description: Epoch ms when the manual status auto-clears.
+                        hideFromReports:
+                          type: boolean
+                          description: When true, the public client should hide this monitor from the "Report a problem" modal.
                   subscribedMonitorIds:
                     type: array
                     items:
@@ -2374,6 +2377,7 @@ paths:
                     - degraded
                     - partial_outage
                     - major_outage
+                    - null
                 minutes:
                   type: integer
                   minimum: 1
