@@ -3,7 +3,11 @@ import { Announcement } from '@server/entity/Announcement';
 import { ProblemReport } from '@server/entity/ProblemReport';
 import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecoverySubscription';
 import { Permission } from '@server/lib/permissions';
-import { getSettings } from '@server/lib/settings';
+import {
+  getSettings,
+  UPTIMEROBOT_MANUAL_STATUSES,
+  type UptimeRobotManualStatus,
+} from '@server/lib/settings';
 import uptimeRobotService, {
   type MonitorSummary,
 } from '@server/lib/uptimerobot';
@@ -274,6 +278,104 @@ statusRoutes.delete<{ id: string }>(
     }
   }
 );
+
+/**
+ * Set or clear an admin manual-status pin on a monitor. Used by the in-page
+ * "Override status" modal so admins don't have to dive into settings to
+ * mark a service Operational / Scheduled Maintenance / Degraded / etc for
+ * a bounded window. Pass `status: null` to clear an existing pin.
+ */
+statusRoutes.post<
+  never,
+  unknown,
+  {
+    monitorId?: number;
+    status?: UptimeRobotManualStatus | null;
+    minutes?: number;
+  }
+>('/override', isAuthenticated(Permission.ADMIN), async (req, res, next) => {
+  const monitorId = Number(req.body.monitorId);
+  if (!Number.isFinite(monitorId)) {
+    return next({ status: 400, message: 'Invalid monitor id.' });
+  }
+
+  const monitors = uptimeRobotService.getMonitors('admin');
+  if (!monitors.some((m) => m.id === monitorId)) {
+    return next({ status: 404, message: 'Monitor not found.' });
+  }
+
+  const status = req.body.status ?? null;
+  if (
+    status !== null &&
+    !(UPTIMEROBOT_MANUAL_STATUSES as string[]).includes(status)
+  ) {
+    return next({ status: 400, message: 'Invalid status value.' });
+  }
+
+  try {
+    const settings = getSettings();
+    const overrides = settings.uptimerobot.monitorOverrides ?? [];
+    const idx = overrides.findIndex((o) => o.id === monitorId);
+    const existing = idx >= 0 ? overrides[idx] : { id: monitorId };
+
+    if (status === null) {
+      const next = {
+        ...existing,
+        manualStatus: undefined,
+        manualStatusUntil: undefined,
+      };
+      if (
+        !next.name &&
+        !next.description &&
+        !next.hideUrl &&
+        !next.hidden &&
+        !next.hideFromReports
+      ) {
+        // Drop the override entirely if there's nothing left to remember.
+        if (idx >= 0) overrides.splice(idx, 1);
+      } else if (idx >= 0) {
+        overrides[idx] = next;
+      } else {
+        overrides.push(next);
+      }
+    } else {
+      const minutes = Math.max(
+        1,
+        Math.min(1440, Math.round(Number(req.body.minutes ?? 60)) || 60)
+      );
+      const updated = {
+        ...existing,
+        manualStatus: status,
+        manualStatusUntil: Date.now() + minutes * 60_000,
+      };
+      if (idx >= 0) overrides[idx] = updated;
+      else overrides.push(updated);
+    }
+
+    settings.uptimerobot.monitorOverrides = overrides;
+    await settings.save();
+
+    return res.status(200).json({
+      monitorId,
+      manualStatus: status,
+      manualStatusUntil:
+        status === null
+          ? null
+          : (overrides.find((o) => o.id === monitorId)?.manualStatusUntil ??
+            null),
+    });
+  } catch (e) {
+    logger.error('Failed to apply monitor manual-status override', {
+      label: 'API',
+      monitorId,
+      errorMessage: (e as Error).message,
+    });
+    return next({
+      status: 500,
+      message: 'Failed to apply override.',
+    });
+  }
+});
 
 /**
  * Returns the count of active problem reports per monitor visible on the

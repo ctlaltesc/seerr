@@ -13,6 +13,7 @@ import {
   BellAlertIcon,
   BellSlashIcon,
   ExclamationTriangleIcon,
+  PencilSquareIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import axios from 'axios';
@@ -25,7 +26,7 @@ const messages = defineMessages('components.Status', {
   status: 'Status',
   statusTitle: 'Service Status',
   statusDescription:
-    'Current status of monitored services. Tap "Notify me" on a downed service to receive a push notification when it comes back online.',
+    'Current status of monitored services. Tap "Notify me" on a downed service to receive a push notification once it’s back online.',
   announcements: 'Announcements',
   postedBy: 'Posted by {name}',
   retract: 'Remove this announcement',
@@ -41,9 +42,22 @@ const messages = defineMessages('components.Status', {
   manualPartialOutage: 'Partial Outage',
   manualMajorOutage: 'Major Outage',
   manualUntil: 'Until {time}',
-  notifyMe: 'Notify me when it’s back up',
+  notifyMe: 'Notify me',
   notifying: 'Subscribed',
   cancel: 'Cancel notification',
+  overrideTitle: 'Override status',
+  overrideDescription:
+    'Pin {name} to a fixed status for the next few minutes. Auto-clears once the duration elapses.',
+  overrideStatusLabel: 'Status',
+  overrideMinutesLabel: 'Duration (minutes)',
+  overrideNone: 'No override (auto)',
+  overrideSubmit: 'Apply override',
+  overrideSubmitting: 'Applying…',
+  overrideClear: 'Clear override',
+  overrideOpen: 'Override status',
+  overrideSuccess: 'Status override applied.',
+  overrideCleared: 'Status override cleared.',
+  overrideFailed: 'Could not apply the status override.',
   notConfigured:
     'Status monitoring has not been configured. Ask an administrator to set up UptimeRobot in the admin settings.',
   noMonitors: 'No monitors are currently configured.',
@@ -159,7 +173,58 @@ const Status = () => {
   );
   const [reportSubmitting, setReportSubmitting] = useState(false);
 
+  const [overrideMonitor, setOverrideMonitor] = useState<StatusMonitor | null>(
+    null
+  );
+  const [overrideStatus, setOverrideStatus] = useState<ManualStatus | ''>('');
+  const [overrideMinutes, setOverrideMinutes] = useState<number>(60);
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+
   const isAdmin = hasPermission(Permission.ADMIN);
+
+  const openOverride = (monitor: StatusMonitor) => {
+    setOverrideMonitor(monitor);
+    setOverrideStatus(monitor.manualStatus ?? '');
+    if (monitor.manualStatusUntil && monitor.manualStatusUntil > Date.now()) {
+      setOverrideMinutes(
+        Math.max(
+          1,
+          Math.round((monitor.manualStatusUntil - Date.now()) / 60000)
+        )
+      );
+    } else {
+      setOverrideMinutes(60);
+    }
+  };
+
+  const submitOverride = async (clear = false) => {
+    if (!overrideMonitor) return;
+    setOverrideSubmitting(true);
+    try {
+      await axios.post('/api/v1/uptimerobot/override', {
+        monitorId: overrideMonitor.id,
+        status: clear ? null : overrideStatus || null,
+        minutes: overrideMinutes,
+      });
+      addToast(
+        intl.formatMessage(
+          clear || !overrideStatus
+            ? messages.overrideCleared
+            : messages.overrideSuccess
+        ),
+        { appearance: 'success', autoDismiss: true }
+      );
+      setOverrideMonitor(null);
+      await revalidate();
+    } catch {
+      addToast(intl.formatMessage(messages.overrideFailed), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  };
 
   const retractAnnouncement = async (id: number) => {
     try {
@@ -554,12 +619,21 @@ const Status = () => {
                       })()}
                     </div>
                   </div>
-                  <Badge
-                    badgeType={statusColor}
-                    className="self-start text-sm sm:ml-2"
-                  >
+                  <Badge badgeType={statusColor} className="text-sm sm:ml-2">
                     {statusLabel}
                   </Badge>
+                  {isAdmin && (
+                    <Button
+                      buttonType="ghost"
+                      type="button"
+                      onClick={() => openOverride(monitor)}
+                      title={intl.formatMessage(messages.overrideOpen)}
+                      aria-label={intl.formatMessage(messages.overrideOpen)}
+                      data-testid={`status-override-${monitor.id}`}
+                    >
+                      <PencilSquareIcon />
+                    </Button>
+                  )}
                   {monitor.status === 'down' && recoveryEnabled && (
                     <Button
                       buttonType={isSubscribed ? 'ghost' : 'primary'}
@@ -660,6 +734,108 @@ const Status = () => {
               </ul>
             );
           })()}
+        </Modal>
+      </Transition>
+
+      <Transition
+        as="div"
+        show={!!overrideMonitor}
+        enter="transition-opacity duration-300"
+        enterFrom="opacity-0"
+        enterTo="opacity-100"
+        leave="transition-opacity duration-300"
+        leaveFrom="opacity-100"
+        leaveTo="opacity-0"
+      >
+        <Modal
+          title={intl.formatMessage(messages.overrideTitle)}
+          onCancel={() => setOverrideMonitor(null)}
+          onOk={() => submitOverride(false)}
+          okText={
+            overrideSubmitting
+              ? intl.formatMessage(messages.overrideSubmitting)
+              : intl.formatMessage(messages.overrideSubmit)
+          }
+          okButtonType="primary"
+          okDisabled={overrideSubmitting}
+          onSecondary={() => submitOverride(true)}
+          secondaryText={intl.formatMessage(messages.overrideClear)}
+          secondaryButtonType="warning"
+          secondaryDisabled={
+            overrideSubmitting || !overrideMonitor?.manualStatus
+          }
+        >
+          {overrideMonitor && (
+            <>
+              <p className="mb-4 text-sm text-gray-300">
+                {intl.formatMessage(messages.overrideDescription, {
+                  name: overrideMonitor.name,
+                })}
+              </p>
+              <div className="form-row">
+                <label htmlFor="overrideStatus" className="text-label">
+                  {intl.formatMessage(messages.overrideStatusLabel)}
+                </label>
+                <div className="form-input-area">
+                  <div className="form-input-field">
+                    <select
+                      id="overrideStatus"
+                      value={overrideStatus}
+                      onChange={(e) =>
+                        setOverrideStatus(
+                          (e.target.value as ManualStatus | '') || ''
+                        )
+                      }
+                    >
+                      <option value="">
+                        {intl.formatMessage(messages.overrideNone)}
+                      </option>
+                      <option value="operational">
+                        {intl.formatMessage(messages.manualOperational)}
+                      </option>
+                      <option value="maintenance">
+                        {intl.formatMessage(messages.manualMaintenance)}
+                      </option>
+                      <option value="degraded">
+                        {intl.formatMessage(messages.manualDegraded)}
+                      </option>
+                      <option value="partial_outage">
+                        {intl.formatMessage(messages.manualPartialOutage)}
+                      </option>
+                      <option value="major_outage">
+                        {intl.formatMessage(messages.manualMajorOutage)}
+                      </option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="form-row">
+                <label htmlFor="overrideMinutes" className="text-label">
+                  {intl.formatMessage(messages.overrideMinutesLabel)}
+                </label>
+                <div className="form-input-area">
+                  <div className="form-input-field">
+                    <input
+                      id="overrideMinutes"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="short"
+                      value={overrideMinutes}
+                      onChange={(e) =>
+                        setOverrideMinutes(
+                          Math.max(
+                            1,
+                            Math.min(1440, Number(e.target.value) || 0)
+                          )
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </Modal>
       </Transition>
     </>

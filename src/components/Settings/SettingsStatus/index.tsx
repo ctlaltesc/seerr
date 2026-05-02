@@ -198,37 +198,6 @@ const SettingsStatus = () => {
     }));
   };
 
-  const handleManualStatusChange = (
-    id: number,
-    status: ManualStatus | undefined,
-    minutes: number
-  ) => {
-    setOverrides((current) => {
-      const existing = current[id] ?? { id };
-      if (!status) {
-        return {
-          ...current,
-          [id]: {
-            ...existing,
-            id,
-            manualStatus: undefined,
-            manualStatusUntil: undefined,
-          },
-        };
-      }
-      const safeMinutes = Math.max(1, Math.min(1440, Math.round(minutes) || 1));
-      return {
-        ...current,
-        [id]: {
-          ...existing,
-          id,
-          manualStatus: status,
-          manualStatusUntil: Date.now() + safeMinutes * 60_000,
-        },
-      };
-    });
-  };
-
   if (!data && !error) return <LoadingSpinner />;
   if (!data) return null;
 
@@ -512,8 +481,6 @@ const SettingsStatus = () => {
                               hideUrl: !!override?.hideUrl,
                               hidden: !!override?.hidden,
                               hideFromReports: !!override?.hideFromReports,
-                              manualStatus: override?.manualStatus,
-                              manualStatusUntil: override?.manualStatusUntil,
                             }}
                             onNameChange={handleNameChange}
                             onDescriptionChange={handleDescriptionChange}
@@ -522,7 +489,6 @@ const SettingsStatus = () => {
                             onHideFromReportsChange={
                               handleHideFromReportsChange
                             }
-                            onManualStatusChange={handleManualStatusChange}
                             onMove={handleMove}
                           />
                         );
