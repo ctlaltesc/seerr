@@ -8,7 +8,7 @@ on:
       - '*'
   push:
     branches:
-      - develop
+      - main
   workflow_dispatch:
 
 permissions:
@@ -171,7 +171,7 @@ jobs:
 
   build:
     name: Build (per-arch, native runners)
-    if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/main'
     strategy:
       matrix:
         include:
@@ -204,7 +204,7 @@ jobs:
           push: false
           build-args: |
             COMMIT_TAG=${{ github.sha }}
-            BUILD_VERSION=develop
+            BUILD_VERSION=main
             SOURCE_DATE_EPOCH=${{ steps.ts.outputs.TIMESTAMP }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
@@ -245,7 +245,8 @@ jobs:
           images: |
             ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=develop
+            type=raw,value=main
+            type=raw,value=latest
             type=sha
           labels: |
             org.opencontainers.image.created=${{ steps.ts.outputs.TIMESTAMP }}
@@ -259,7 +260,7 @@ jobs:
           push: true
           build-args: |
             COMMIT_TAG=${{ github.sha }}
-            BUILD_VERSION=develop
+            BUILD_VERSION=main
             SOURCE_DATE_EPOCH=${{ steps.ts.outputs.TIMESTAMP }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}

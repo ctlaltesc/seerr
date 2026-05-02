@@ -14,7 +14,7 @@ on:
       - 'tsconfig.json'
       - '.github/workflows/cypress.yml'
   push:
-    branches: [develop]
+    branches: [main]
     paths:
       - '{src,server,config,cypress}/**'
       - 'cypress.config.ts'

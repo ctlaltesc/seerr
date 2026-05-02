@@ -12,7 +12,7 @@ on:
       - '.github/workflows/docs-link-check.yml'
   push:
     branches:
-      - develop
+      - main
     paths:
       - 'docs/**'
       - 'gen-docs/**'

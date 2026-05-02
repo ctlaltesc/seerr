@@ -5,12 +5,12 @@ name: Lint and Test Charts
 on:
   pull_request:
     branches:
-      - develop
+      - main
     paths:
       - '.github/workflows/lint-helm-charts.yml'
       - 'charts/**'
   push:
-    branches: [develop]
+    branches: [main]
     paths:
       - 'charts/**'
 

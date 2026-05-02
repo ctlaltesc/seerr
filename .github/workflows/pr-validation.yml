@@ -177,9 +177,9 @@ jobs:
               `### Issues found:\n`,
               issueList,
               `\n---\n`,
-              `**Please update your PR description to follow the [PR template](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/develop/.github/PULL_REQUEST_TEMPLATE.md).**`,
+              `**Please update your PR description to follow the [PR template](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/.github/PULL_REQUEST_TEMPLATE.md).**`,
               `Incomplete or missing PR descriptions may indicate insufficient review of the changes, and PRs that do not follow the template **may be closed without review**.`,
-              `See our [Contributing Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/develop/CONTRIBUTING.md) for more details.\n`,
+              `See our [Contributing Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CONTRIBUTING.md) for more details.\n`,
               `*This check will automatically re-run when you edit your PR description.*`,
             ].join('\n');
 
