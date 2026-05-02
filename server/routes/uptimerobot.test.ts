@@ -6,6 +6,7 @@ import { Announcement } from '@server/entity/Announcement';
 import { ProblemReport } from '@server/entity/ProblemReport';
 import { User } from '@server/entity/User';
 import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecoverySubscription';
+import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import uptimeRobotService from '@server/lib/uptimerobot';
 import { checkUser, isAuthenticated } from '@server/middleware/auth';
@@ -14,6 +15,7 @@ import type { Express } from 'express';
 import express from 'express';
 import session from 'express-session';
 import request from 'supertest';
+import { IsNull } from 'typeorm';
 import authRoutes from './auth';
 import uptimeRobotRoutes from './uptimerobot';
 
@@ -31,7 +33,11 @@ function createApp() {
   );
   app.use(checkUser);
   app.use('/auth', authRoutes);
-  app.use('/uptimerobot', isAuthenticated(), uptimeRobotRoutes);
+  app.use(
+    '/uptimerobot',
+    isAuthenticated(Permission.STATUS_VIEW),
+    uptimeRobotRoutes
+  );
   app.use(
     (
       err: { status?: number; message?: string },
@@ -408,6 +414,104 @@ describe('POST /uptimerobot/override', () => {
     assert.strictEqual(ov?.name, 'Custom');
     assert.strictEqual(ov?.hideFromReports, true);
     assert.strictEqual(ov?.manualStatus, undefined);
+  });
+
+  it('clears active reports when status is set to operational', async () => {
+    // Seed monitor 1002 (which the mock reports as down) with an active
+    // problem report, then have an admin pin it operational.
+    const friend = await getRepository(User).findOneOrFail({
+      where: { email: 'friend@seerr.dev' },
+    });
+    await getRepository(ProblemReport).save(
+      new ProblemReport({
+        reporter: friend,
+        monitorId: 1002,
+        monitorNameSnapshot: 'Web',
+        monitorStatusAtReport: 'down',
+      })
+    );
+
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1002, status: 'operational', minutes: 30 });
+    assert.strictEqual(res.status, 200);
+
+    // The route awaits `clearActiveReportsForMonitor` before responding,
+    // so by the time we get a 200 the reports are already resolved.
+    const stillActive = await getRepository(ProblemReport).find({
+      where: { resolvedAt: IsNull() },
+    });
+    assert.strictEqual(stillActive.length, 0);
+  });
+});
+
+describe('DELETE /uptimerobot/suppression', () => {
+  it('rejects non-admin users with 403', async () => {
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await friend.delete('/uptimerobot/suppression');
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('clears an active suppression window', async () => {
+    const settings = getSettings();
+    settings.uptimerobot.reportsSuppressedUntil = Date.now() + 60 * 60_000;
+
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin.delete('/uptimerobot/suppression');
+    assert.strictEqual(res.status, 204);
+    assert.strictEqual(
+      getSettings().uptimerobot.reportsSuppressedUntil,
+      undefined
+    );
+  });
+
+  it('is idempotent when no suppression is active', async () => {
+    const settings = getSettings();
+    settings.uptimerobot.reportsSuppressedUntil = undefined;
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin.delete('/uptimerobot/suppression');
+    assert.strictEqual(res.status, 204);
+  });
+});
+
+describe('Status permissions', () => {
+  it('rejects users without STATUS_VIEW with 403 on GET /uptimerobot', async () => {
+    const limited = await loginAs('limited@seerr.dev', 'test1234');
+    const res = await limited.get('/uptimerobot');
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('rejects users without STATUS_REPORT with 403 on POST /uptimerobot/reports', async () => {
+    // Grant just STATUS_VIEW so the user passes the parent gate.
+    const repo = getRepository(User);
+    const limited = await repo.findOneOrFail({
+      where: { email: 'limited@seerr.dev' },
+    });
+    limited.permissions = 1; // STATUS_VIEW only
+    await repo.save(limited);
+
+    const agent = await loginAs('limited@seerr.dev', 'test1234');
+    const res = await agent
+      .post('/uptimerobot/reports')
+      .send({ monitorIds: [1002] });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('lets users with STATUS_VIEW + STATUS_REPORT submit reports', async () => {
+    const repo = getRepository(User);
+    const limited = await repo.findOneOrFail({
+      where: { email: 'limited@seerr.dev' },
+    });
+    limited.permissions = 1 | 536870912; // VIEW + REPORT
+    await repo.save(limited);
+
+    const agent = await loginAs('limited@seerr.dev', 'test1234');
+    const res = await agent
+      .post('/uptimerobot/reports')
+      .send({ monitorIds: [1002] });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.created, 1);
   });
 });
 

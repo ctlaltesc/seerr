@@ -140,6 +140,10 @@ statusRoutes.post<{ monitorId: string }>(
           })
         );
       }
+      // Prime in-memory recovery state so that even if the service never
+      // observed this monitor as down (process restart, brief blip
+      // between polls), the next "up" tick starts the recovery clock.
+      uptimeRobotService.primeRecovery(monitorId);
       return res.status(204).send();
     } catch (e) {
       logger.error('Failed to register monitor recovery subscription', {
@@ -318,6 +322,11 @@ statusRoutes.post<
     const idx = overrides.findIndex((o) => o.id === monitorId);
     const existing = idx >= 0 ? overrides[idx] : { id: monitorId };
 
+    // Snapshot the *effective* status before we apply the override so we
+    // can detect a transition into operational.
+    const previousMonitor = monitors.find((m) => m.id === monitorId);
+    const wasUp = previousMonitor?.status === 'up';
+
     if (status === null) {
       const next = {
         ...existing,
@@ -355,6 +364,31 @@ statusRoutes.post<
     settings.uptimerobot.monitorOverrides = overrides;
     await settings.save();
 
+    // If the admin pinned the monitor back to "operational" while the
+    // effective status was something other than up, treat it as a recovery
+    // event: clear any active problem reports synchronously so the
+    // per-monitor badges go away in the same response, then dispatch the
+    // recovery web push fire-and-forget (it can be slow when there are
+    // many subscribers).
+    if (status === 'operational' && !wasUp) {
+      try {
+        await uptimeRobotService.clearActiveReportsForMonitor(monitorId);
+      } catch (e) {
+        logger.warn('Failed to clear reports on manual recovery', {
+          label: 'UptimeRobot',
+          monitorId,
+          errorMessage: (e as Error).message,
+        });
+      }
+      uptimeRobotService.fireManualRecovery(monitorId).catch((e) => {
+        logger.warn('Manual recovery dispatch failed', {
+          label: 'UptimeRobot',
+          monitorId,
+          errorMessage: (e as Error).message,
+        });
+      });
+    }
+
     return res.status(200).json({
       monitorId,
       manualStatus: status,
@@ -376,6 +410,32 @@ statusRoutes.post<
     });
   }
 });
+
+/**
+ * Clear an active "suppress problem reports" window so admins can lift
+ * the block from the status page UI without waiting it out.
+ */
+statusRoutes.delete(
+  '/suppression',
+  isAuthenticated(Permission.ADMIN),
+  async (_req, res, next) => {
+    try {
+      const settings = getSettings();
+      settings.uptimerobot.reportsSuppressedUntil = undefined;
+      await settings.save();
+      return res.status(204).send();
+    } catch (e) {
+      logger.error('Failed to clear report suppression window', {
+        label: 'API',
+        errorMessage: (e as Error).message,
+      });
+      return next({
+        status: 500,
+        message: 'Failed to clear suppression.',
+      });
+    }
+  }
+);
 
 /**
  * Returns the count of active problem reports per monitor visible on the
@@ -440,6 +500,7 @@ statusRoutes.get('/reports', async (req, res, next) => {
  */
 statusRoutes.post<never, unknown, { monitorIds?: number[] }>(
   '/reports',
+  isAuthenticated(Permission.STATUS_REPORT),
   async (req, res, next) => {
     if (!req.user) {
       return next({ status: 403, message: 'Authentication required.' });

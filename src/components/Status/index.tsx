@@ -6,6 +6,7 @@ import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import Modal from '@app/components/Common/Modal';
 import PageTitle from '@app/components/Common/PageTitle';
+import MonitorOverrideModal from '@app/components/MonitorOverrideModal';
 import { Permission, useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
@@ -15,6 +16,7 @@ import {
   ExclamationTriangleIcon,
   PencilSquareIcon,
   TrashIcon,
+  XCircleIcon,
 } from '@heroicons/react/24/outline';
 import axios from 'axios';
 import { useState } from 'react';
@@ -45,21 +47,14 @@ const messages = defineMessages('components.Status', {
   notifyMe: 'Notify me',
   notifying: 'Subscribed',
   cancel: 'Cancel notification',
-  overrideTitle: 'Override status',
-  overrideDescription:
-    'Pin {name} to a fixed status for the next few minutes. Auto-clears once the duration elapses.',
-  overrideStatusLabel: 'Status',
-  overrideMinutesLabel: 'Duration (minutes)',
-  overrideNone: 'Automatic',
-  overrideSubmit: 'Apply override',
-  overrideSubmitting: 'Applying…',
-  overrideClear: 'Clear override',
   overrideOpen: 'Override status',
-  overrideSuccess: 'Status override applied.',
-  overrideCleared: 'Status override cleared.',
-  overrideFailed: 'Could not apply the status override.',
+  clearSuppression: 'Resume reports',
+  clearSuppressionSuccess: 'Reports are no longer suppressed.',
+  clearSuppressionFailed: 'Could not lift the suppression.',
   notConfigured:
     'Status monitoring has not been configured. Ask an administrator to set up UptimeRobot in the admin settings.',
+  noPermission:
+    'You don’t have permission to view the Status page. Ask an administrator if you think this is wrong.',
   noMonitors: 'No monitors are currently configured.',
   fetchError:
     'Unable to fetch the latest status from UptimeRobot. Showing the last known status.',
@@ -71,8 +66,8 @@ const messages = defineMessages('components.Status', {
     'Recovery notifications are currently disabled by the administrator.',
   visitMonitor: 'Open',
   lastChecked: 'Last checked {time}',
-  reportProblem: 'Report a problem',
-  reportTitle: 'Report a problem',
+  reportProblem: 'Report a Problem',
+  reportTitle: 'Report a Problem',
   reportDescription:
     'Check off any services you’re having trouble with. The administrator will be notified, and other people will see that you’re also having issues.',
   reportSubmit: 'Submit',
@@ -151,11 +146,13 @@ const Status = () => {
   const { hasPermission } = useUser();
   const [busy, setBusy] = useState<number | null>(null);
 
+  const canView = hasPermission(Permission.STATUS_VIEW);
+
   const {
     data,
     error,
     mutate: revalidate,
-  } = useSWR<StatusResponse>('/api/v1/uptimerobot', {
+  } = useSWR<StatusResponse>(canView ? '/api/v1/uptimerobot' : null, {
     refreshInterval: 30000,
   });
 
@@ -176,53 +173,26 @@ const Status = () => {
   const [overrideMonitor, setOverrideMonitor] = useState<StatusMonitor | null>(
     null
   );
-  const [overrideStatus, setOverrideStatus] = useState<ManualStatus | ''>('');
-  const [overrideMinutes, setOverrideMinutes] = useState<number>(60);
-  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  const [clearingSuppression, setClearingSuppression] = useState(false);
 
   const isAdmin = hasPermission(Permission.ADMIN);
 
-  const openOverride = (monitor: StatusMonitor) => {
-    setOverrideMonitor(monitor);
-    setOverrideStatus(monitor.manualStatus ?? '');
-    if (monitor.manualStatusUntil && monitor.manualStatusUntil > Date.now()) {
-      setOverrideMinutes(
-        Math.max(
-          1,
-          Math.round((monitor.manualStatusUntil - Date.now()) / 60000)
-        )
-      );
-    } else {
-      setOverrideMinutes(60);
-    }
-  };
-
-  const submitOverride = async (clear = false) => {
-    if (!overrideMonitor) return;
-    setOverrideSubmitting(true);
+  const clearSuppression = async () => {
+    setClearingSuppression(true);
     try {
-      await axios.post('/api/v1/uptimerobot/override', {
-        monitorId: overrideMonitor.id,
-        status: clear ? null : overrideStatus || null,
-        minutes: overrideMinutes,
+      await axios.delete('/api/v1/uptimerobot/suppression');
+      addToast(intl.formatMessage(messages.clearSuppressionSuccess), {
+        appearance: 'success',
+        autoDismiss: true,
       });
-      addToast(
-        intl.formatMessage(
-          clear || !overrideStatus
-            ? messages.overrideCleared
-            : messages.overrideSuccess
-        ),
-        { appearance: 'success', autoDismiss: true }
-      );
-      setOverrideMonitor(null);
       await revalidate();
     } catch {
-      addToast(intl.formatMessage(messages.overrideFailed), {
+      addToast(intl.formatMessage(messages.clearSuppressionFailed), {
         appearance: 'error',
         autoDismiss: true,
       });
     } finally {
-      setOverrideSubmitting(false);
+      setClearingSuppression(false);
     }
   };
 
@@ -358,6 +328,21 @@ const Status = () => {
     }
   };
 
+  if (!canView) {
+    return (
+      <>
+        <PageTitle title={intl.formatMessage(messages.status)} />
+        <Header>{intl.formatMessage(messages.statusTitle)}</Header>
+        <div className="mt-4">
+          <Alert
+            type="warning"
+            title={intl.formatMessage(messages.noPermission)}
+          />
+        </div>
+      </>
+    );
+  }
+
   if (!data && !error) return <LoadingSpinner />;
   if (!data) return null;
 
@@ -373,35 +358,53 @@ const Status = () => {
             {intl.formatMessage(messages.statusDescription)}
           </p>
         </div>
-        {data?.configured && data.monitors.length > 0 && (
-          <div className="flex flex-shrink-0">
-            <Button
-              buttonType="warning"
-              type="button"
-              onClick={() => {
-                setReportSelection(new Set());
-                setReportModalOpen(true);
-              }}
-              disabled={
-                !!data.reportsSuppressedUntil &&
-                data.reportsSuppressedUntil > Date.now()
-              }
-              data-testid="status-report-problem"
-            >
-              <ExclamationTriangleIcon />
-              <span>{intl.formatMessage(messages.reportProblem)}</span>
-            </Button>
-          </div>
-        )}
+        {data?.configured &&
+          data.monitors.length > 0 &&
+          hasPermission(Permission.STATUS_REPORT) && (
+            <div className="flex flex-shrink-0">
+              <Button
+                buttonType="warning"
+                type="button"
+                onClick={() => {
+                  setReportSelection(new Set());
+                  setReportModalOpen(true);
+                }}
+                disabled={
+                  !!data.reportsSuppressedUntil &&
+                  data.reportsSuppressedUntil > Date.now()
+                }
+                data-testid="status-report-problem"
+              >
+                <ExclamationTriangleIcon />
+                <span>{intl.formatMessage(messages.reportProblem)}</span>
+              </Button>
+            </div>
+          )}
       </div>
 
       {data?.reportsSuppressedUntil &&
         data.reportsSuppressedUntil > Date.now() && (
-          <div className="mb-4">
-            <Alert
-              type="info"
-              title={intl.formatMessage(messages.reportSuppressed)}
-            />
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex-1">
+              <Alert
+                type="info"
+                title={intl.formatMessage(messages.reportSuppressed)}
+              />
+            </div>
+            {isAdmin && (
+              <div className="flex flex-shrink-0">
+                <Button
+                  buttonType="warning"
+                  type="button"
+                  disabled={clearingSuppression}
+                  onClick={clearSuppression}
+                  data-testid="status-clear-suppression"
+                >
+                  <XCircleIcon />
+                  <span>{intl.formatMessage(messages.clearSuppression)}</span>
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -564,11 +567,15 @@ const Status = () => {
                           })}
                         </div>
                       )}
-                      {monitor.description && (
-                        <div className="mt-1 text-sm text-gray-300">
-                          {monitor.description}
-                        </div>
-                      )}
+                      {monitor.description &&
+                        !manualActive &&
+                        !(reportCounts ?? []).some(
+                          (r) => r.monitorId === monitor.id && r.count > 0
+                        ) && (
+                          <div className="mt-1 text-sm text-gray-300">
+                            {monitor.description}
+                          </div>
+                        )}
                       {monitor.url && (
                         <a
                           href={monitor.url}
@@ -626,7 +633,7 @@ const Status = () => {
                     <Button
                       buttonType="ghost"
                       type="button"
-                      onClick={() => openOverride(monitor)}
+                      onClick={() => setOverrideMonitor(monitor)}
                       title={intl.formatMessage(messages.overrideOpen)}
                       aria-label={intl.formatMessage(messages.overrideOpen)}
                       data-testid={`status-override-${monitor.id}`}
@@ -737,107 +744,30 @@ const Status = () => {
         </Modal>
       </Transition>
 
-      <Transition
-        as="div"
-        show={!!overrideMonitor}
-        enter="transition-opacity duration-300"
-        enterFrom="opacity-0"
-        enterTo="opacity-100"
-        leave="transition-opacity duration-300"
-        leaveFrom="opacity-100"
-        leaveTo="opacity-0"
-      >
-        <Modal
-          title={intl.formatMessage(messages.overrideTitle)}
-          onCancel={() => setOverrideMonitor(null)}
-          onOk={() => submitOverride(false)}
-          okText={
-            overrideSubmitting
-              ? intl.formatMessage(messages.overrideSubmitting)
-              : intl.formatMessage(messages.overrideSubmit)
-          }
-          okButtonType="primary"
-          okDisabled={overrideSubmitting}
-          onSecondary={() => submitOverride(true)}
-          secondaryText={intl.formatMessage(messages.overrideClear)}
-          secondaryButtonType="warning"
-          secondaryDisabled={
-            overrideSubmitting || !overrideMonitor?.manualStatus
-          }
-        >
-          {overrideMonitor && (
-            <>
-              <p className="mb-4 text-sm text-gray-300">
-                {intl.formatMessage(messages.overrideDescription, {
-                  name: overrideMonitor.name,
-                })}
-              </p>
-              <div className="form-row">
-                <label htmlFor="overrideStatus" className="text-label">
-                  {intl.formatMessage(messages.overrideStatusLabel)}
-                </label>
-                <div className="form-input-area">
-                  <div className="form-input-field">
-                    <select
-                      id="overrideStatus"
-                      value={overrideStatus}
-                      onChange={(e) =>
-                        setOverrideStatus(
-                          (e.target.value as ManualStatus | '') || ''
-                        )
-                      }
-                    >
-                      <option value="">
-                        {intl.formatMessage(messages.overrideNone)}
-                      </option>
-                      <option value="operational">
-                        {intl.formatMessage(messages.manualOperational)}
-                      </option>
-                      <option value="maintenance">
-                        {intl.formatMessage(messages.manualMaintenance)}
-                      </option>
-                      <option value="degraded">
-                        {intl.formatMessage(messages.manualDegraded)}
-                      </option>
-                      <option value="partial_outage">
-                        {intl.formatMessage(messages.manualPartialOutage)}
-                      </option>
-                      <option value="major_outage">
-                        {intl.formatMessage(messages.manualMajorOutage)}
-                      </option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-              <div className="form-row">
-                <label htmlFor="overrideMinutes" className="text-label">
-                  {intl.formatMessage(messages.overrideMinutesLabel)}
-                </label>
-                <div className="form-input-area">
-                  <div className="form-input-field">
-                    <input
-                      id="overrideMinutes"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className="short"
-                      value={overrideMinutes}
-                      onChange={(e) =>
-                        setOverrideMinutes(
-                          Math.max(
-                            1,
-                            Math.min(1440, Number(e.target.value) || 0)
-                          )
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </Modal>
-      </Transition>
+      <MonitorOverrideModal
+        isOpen={!!overrideMonitor}
+        presetMonitor={
+          overrideMonitor
+            ? {
+                id: overrideMonitor.id,
+                name: overrideMonitor.name,
+                manualStatus: overrideMonitor.manualStatus,
+                manualStatusUntil: overrideMonitor.manualStatusUntil,
+              }
+            : null
+        }
+        monitors={(data?.monitors ?? []).map((m) => ({
+          id: m.id,
+          name: m.name,
+          manualStatus: m.manualStatus,
+          manualStatusUntil: m.manualStatusUntil,
+        }))}
+        onClose={() => setOverrideMonitor(null)}
+        onApplied={() => {
+          revalidate();
+          revalidateReports();
+        }}
+      />
     </>
   );
 };
