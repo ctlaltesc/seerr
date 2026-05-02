@@ -81,7 +81,15 @@ router.get<unknown, StatusResponse>('/status', async (req, res) => {
     if (releases.length) {
       const latestVersion = releases[0];
 
-      if (!latestVersion.name.includes(currentVersion)) {
+      // Tag name (e.g. "v1.7.1") is canonical; release.name can be anything
+      // (the fork's first release was titled "2026.05.01"). Strip the leading
+      // "v" so it matches the package.json version string. Fall back to the
+      // older name-includes check when tag_name is missing for any reason.
+      const latestTag = (latestVersion.tag_name ?? '').replace(/^v/, '');
+      const matchesTag = latestTag !== '' && latestTag === currentVersion;
+      const matchesName = latestVersion.name.includes(currentVersion);
+
+      if (!matchesTag && !matchesName) {
         updateAvailable = true;
       }
     }

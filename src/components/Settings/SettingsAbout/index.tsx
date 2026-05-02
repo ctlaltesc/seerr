@@ -59,15 +59,13 @@ const SettingsAbout = () => {
       />
       <div className="section">
         <List title={intl.formatMessage(messages.aboutseerr)}>
-          {data.version.startsWith('develop-') && (
-            <Alert
-              title={intl.formatMessage(messages.runningDevelop, {
-                code: (msg: React.ReactNode) => (
-                  <code className="bg-gray-800/50">{msg}</code>
-                ),
-              })}
-            />
-          )}
+          <Alert
+            title={intl.formatMessage(messages.runningDevelop, {
+              code: (msg: React.ReactNode) => (
+                <code className="bg-gray-800/50">{msg}</code>
+              ),
+            })}
+          />
           <List.Item
             title={intl.formatMessage(messages.version)}
             className="flex flex-row items-center truncate"
@@ -80,7 +78,7 @@ const SettingsAbout = () => {
                 <a
                   href={
                     data.version.startsWith('develop-')
-                      ? `https://github.com/ctlaltesc/seerr/compare/${status.commitTag}...develop`
+                      ? `https://github.com/ctlaltesc/seerr/compare/${status.commitTag}...main`
                       : 'https://github.com/ctlaltesc/seerr/releases'
                   }
                   target="_blank"
@@ -97,7 +95,7 @@ const SettingsAbout = () => {
                 <a
                   href={
                     data.version.startsWith('develop-')
-                      ? 'https://github.com/ctlaltesc/seerr/commits/develop'
+                      ? 'https://github.com/ctlaltesc/seerr/commits/main'
                       : 'https://github.com/ctlaltesc/seerr/releases'
                   }
                   target="_blank"

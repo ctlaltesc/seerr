@@ -112,7 +112,7 @@ class GithubAPI extends ExternalAPI {
 
   public async getSeerrCommits({
     take = 20,
-    branch = 'develop',
+    branch = 'main',
   }: {
     take?: number;
     branch?: string;
