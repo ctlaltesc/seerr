@@ -110,6 +110,7 @@ const SidebarLinks: SidebarLinkProps[] = [
     svgIcon: <SignalIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/status/,
     dataTestId: 'sidebar-menu-status',
+    requiredPermission: Permission.STATUS_VIEW,
   },
   {
     href: '/users',

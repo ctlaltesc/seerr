@@ -53,6 +53,8 @@ const messages = defineMessages('components.Status', {
   clearSuppressionFailed: 'Could not lift the suppression.',
   notConfigured:
     'Status monitoring has not been configured. Ask an administrator to set up UptimeRobot in the admin settings.',
+  noPermission:
+    'You don’t have permission to view the Status page. Ask an administrator if you think this is wrong.',
   noMonitors: 'No monitors are currently configured.',
   fetchError:
     'Unable to fetch the latest status from UptimeRobot. Showing the last known status.',
@@ -144,11 +146,13 @@ const Status = () => {
   const { hasPermission } = useUser();
   const [busy, setBusy] = useState<number | null>(null);
 
+  const canView = hasPermission(Permission.STATUS_VIEW);
+
   const {
     data,
     error,
     mutate: revalidate,
-  } = useSWR<StatusResponse>('/api/v1/uptimerobot', {
+  } = useSWR<StatusResponse>(canView ? '/api/v1/uptimerobot' : null, {
     refreshInterval: 30000,
   });
 
@@ -324,6 +328,21 @@ const Status = () => {
     }
   };
 
+  if (!canView) {
+    return (
+      <>
+        <PageTitle title={intl.formatMessage(messages.status)} />
+        <Header>{intl.formatMessage(messages.statusTitle)}</Header>
+        <div className="mt-4">
+          <Alert
+            type="warning"
+            title={intl.formatMessage(messages.noPermission)}
+          />
+        </div>
+      </>
+    );
+  }
+
   if (!data && !error) return <LoadingSpinner />;
   if (!data) return null;
 
@@ -339,26 +358,28 @@ const Status = () => {
             {intl.formatMessage(messages.statusDescription)}
           </p>
         </div>
-        {data?.configured && data.monitors.length > 0 && (
-          <div className="flex flex-shrink-0">
-            <Button
-              buttonType="warning"
-              type="button"
-              onClick={() => {
-                setReportSelection(new Set());
-                setReportModalOpen(true);
-              }}
-              disabled={
-                !!data.reportsSuppressedUntil &&
-                data.reportsSuppressedUntil > Date.now()
-              }
-              data-testid="status-report-problem"
-            >
-              <ExclamationTriangleIcon />
-              <span>{intl.formatMessage(messages.reportProblem)}</span>
-            </Button>
-          </div>
-        )}
+        {data?.configured &&
+          data.monitors.length > 0 &&
+          hasPermission(Permission.STATUS_REPORT) && (
+            <div className="flex flex-shrink-0">
+              <Button
+                buttonType="warning"
+                type="button"
+                onClick={() => {
+                  setReportSelection(new Set());
+                  setReportModalOpen(true);
+                }}
+                disabled={
+                  !!data.reportsSuppressedUntil &&
+                  data.reportsSuppressedUntil > Date.now()
+                }
+                data-testid="status-report-problem"
+              >
+                <ExclamationTriangleIcon />
+                <span>{intl.formatMessage(messages.reportProblem)}</span>
+              </Button>
+            </div>
+          )}
       </div>
 
       {data?.reportsSuppressedUntil &&

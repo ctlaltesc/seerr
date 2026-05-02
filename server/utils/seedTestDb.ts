@@ -55,12 +55,34 @@ async function seedTestUsers(): Promise<void> {
   otherUser.email = 'friend@seerr.dev';
   otherUser.userType = UserType.PLEX;
   otherUser.password = TEST_USER_PASSWORD_HASH;
-  otherUser.permissions = 32;
+  // 32 = REQUEST, 1 = STATUS_VIEW, 536870912 = STATUS_REPORT.
+  // Mirrors the new default permissions for fresh users.
+  otherUser.permissions = 32 | 1 | 536870912;
   otherUser.avatar = gravatarUrl('friend@seerr.dev', {
     default: 'mm',
     size: 200,
   });
   await userRepository.save(otherUser);
+
+  // A user with absolutely no granted permissions, used by tests that
+  // exercise permission gating (status-page view + report).
+  const limited =
+    (await userRepository.findOne({
+      where: { email: 'limited@seerr.dev' },
+    })) ?? new User();
+  limited.plexId = admin?.plexId ?? 1;
+  limited.plexToken = '1234';
+  limited.plexUsername = 'limited';
+  limited.username = 'limited';
+  limited.email = 'limited@seerr.dev';
+  limited.userType = UserType.PLEX;
+  limited.password = TEST_USER_PASSWORD_HASH;
+  limited.permissions = 0;
+  limited.avatar = gravatarUrl('limited@seerr.dev', {
+    default: 'mm',
+    size: 200,
+  });
+  await userRepository.save(limited);
 }
 
 /**

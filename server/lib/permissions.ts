@@ -1,5 +1,9 @@
 export enum Permission {
   NONE = 0,
+  // 1 (2^0) is used by STATUS_VIEW below — it was the only unused bit
+  // beneath the upstream MANAGE_BLOCKLIST/VIEW_BLOCKLIST values that
+  // still fits comfortably in Postgres `int4` for `user.permissions`.
+  STATUS_VIEW = 1,
   ADMIN = 2,
   MANAGE_SETTINGS = 4,
   MANAGE_USERS = 8,
@@ -28,6 +32,9 @@ export enum Permission {
   RECENT_VIEW = 67108864,
   WATCHLIST_VIEW = 134217728,
   MANAGE_BLOCKLIST = 268435456,
+  // 2^29 (536870912) was unused in upstream — reserve it for the
+  // status-page report permission so we stay inside int4.
+  STATUS_REPORT = 536870912,
   VIEW_BLOCKLIST = 1073741824,
 }
 
