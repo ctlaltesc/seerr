@@ -2346,6 +2346,60 @@ paths:
           description: Announcement removed (or did not exist).
         '400':
           description: Invalid announcement id.
+  /uptimerobot/override:
+    post:
+      summary: Set or clear an admin manual-status pin on a monitor
+      description: |
+        Admin-only. Pass `status` plus `minutes` to pin the monitor to one of the
+        manual labels (Operational, Scheduled Maintenance, Degraded Performance,
+        Partial Outage, Major Outage) for the given window. Pass `status: null`
+        (or omit it) to clear an existing pin.
+      tags:
+        - uptimerobot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monitorId:
+                  type: integer
+                status:
+                  type: string
+                  nullable: true
+                  enum:
+                    - operational
+                    - maintenance
+                    - degraded
+                    - partial_outage
+                    - major_outage
+                minutes:
+                  type: integer
+                  minimum: 1
+                  maximum: 1440
+              required:
+                - monitorId
+      responses:
+        '200':
+          description: Override applied (or cleared)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monitorId:
+                    type: integer
+                  manualStatus:
+                    type: string
+                    nullable: true
+                  manualStatusUntil:
+                    type: integer
+                    nullable: true
+        '400':
+          description: Invalid payload.
+        '404':
+          description: Monitor not found.
   /uptimerobot/reports:
     get:
       summary: List active per-monitor problem report counts

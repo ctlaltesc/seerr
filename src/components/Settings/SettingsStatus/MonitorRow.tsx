@@ -1,7 +1,6 @@
 import Badge from '@app/components/Common/Badge';
-import Button from '@app/components/Common/Button';
 import defineMessages from '@app/utils/defineMessages';
-import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
+import { Bars3Icon } from '@heroicons/react/24/outline';
 import { useEffect, useRef, useState } from 'react';
 import { useDrag, useDrop } from 'react-aria';
 import { useIntl } from 'react-intl';
@@ -17,17 +16,6 @@ const messages = defineMessages(
     hidden: 'Hide this monitor from the status page',
     hideFromReports: 'Hide from the “Report a problem” modal',
     useCustomName: 'Use custom name',
-    forceStatus: 'Force status',
-    forceStatusNone: 'No override',
-    statusOperational: 'Operational',
-    statusMaintenance: 'Scheduled Maintenance',
-    statusDegraded: 'Degraded Performance',
-    statusPartialOutage: 'Partial Outage',
-    statusMajorOutage: 'Major Outage',
-    minutesLabel: 'for',
-    minutesUnit: 'min',
-    activeUntil: 'Active until {time}',
-    clearOverride: 'Clear',
   }
 );
 
@@ -54,8 +42,6 @@ export interface MonitorRowItem {
   hideUrl: boolean;
   hidden: boolean;
   hideFromReports: boolean;
-  manualStatus?: ManualStatus;
-  manualStatusUntil?: number;
 }
 
 interface MonitorRowProps {
@@ -65,11 +51,6 @@ interface MonitorRowProps {
   onHideUrlChange: (id: number, hideUrl: boolean) => void;
   onHiddenChange: (id: number, hidden: boolean) => void;
   onHideFromReportsChange: (id: number, hideFromReports: boolean) => void;
-  onManualStatusChange: (
-    id: number,
-    status: ManualStatus | undefined,
-    minutes: number
-  ) => void;
   onMove: (
     draggedId: number,
     targetId: number,
@@ -84,7 +65,6 @@ const MonitorRow = ({
   onHideUrlChange,
   onHiddenChange,
   onHideFromReportsChange,
-  onManualStatusChange,
   onMove,
 }: MonitorRowProps) => {
   const intl = useIntl();
@@ -95,16 +75,6 @@ const MonitorRow = ({
   const [useCustomName, setUseCustomName] = useState<boolean>(
     !!monitor.name?.trim()
   );
-
-  // Default the duration field to whatever's still live, falling back to 30.
-  const remainingMinutes =
-    monitor.manualStatusUntil && monitor.manualStatusUntil > Date.now()
-      ? Math.max(
-          1,
-          Math.round((monitor.manualStatusUntil - Date.now()) / 60000)
-        )
-      : 30;
-  const [minutes, setMinutes] = useState<number>(remainingMinutes);
 
   // If the parent reloads with a different override, reflect that in the
   // local checkbox state once.
@@ -169,11 +139,6 @@ const MonitorRow = ({
     if (raw === 'paused') return { type: 'warning' as const, label: 'Paused' };
     return { type: 'default' as const, label: 'Unknown' };
   })();
-
-  const manualActive =
-    !!monitor.manualStatus &&
-    !!monitor.manualStatusUntil &&
-    monitor.manualStatusUntil > Date.now();
 
   return (
     <div
@@ -261,94 +226,6 @@ const MonitorRow = ({
             {monitor.url && (
               <p className="mt-1 truncate text-xs text-gray-500">
                 {monitor.url}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col gap-2 rounded-md border border-gray-700/60 bg-gray-900/40 p-2">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-              <label className="text-xs uppercase tracking-wide text-gray-400">
-                {intl.formatMessage(messages.forceStatus)}
-              </label>
-              <select
-                value={monitor.manualStatus ?? ''}
-                onChange={(e) => {
-                  const next = (e.target.value || undefined) as
-                    | ManualStatus
-                    | undefined;
-                  onManualStatusChange(monitor.id, next, minutes);
-                }}
-                className="short"
-              >
-                <option value="">
-                  {intl.formatMessage(messages.forceStatusNone)}
-                </option>
-                <option value="operational">
-                  {intl.formatMessage(messages.statusOperational)}
-                </option>
-                <option value="maintenance">
-                  {intl.formatMessage(messages.statusMaintenance)}
-                </option>
-                <option value="degraded">
-                  {intl.formatMessage(messages.statusDegraded)}
-                </option>
-                <option value="partial_outage">
-                  {intl.formatMessage(messages.statusPartialOutage)}
-                </option>
-                <option value="major_outage">
-                  {intl.formatMessage(messages.statusMajorOutage)}
-                </option>
-              </select>
-              <label className="flex items-center gap-1 text-xs text-gray-300">
-                <span>{intl.formatMessage(messages.minutesLabel)}</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={1440}
-                  value={minutes}
-                  onChange={(e) => {
-                    const value = Math.max(
-                      1,
-                      Math.min(1440, Number(e.target.value) || 0)
-                    );
-                    setMinutes(value);
-                    if (monitor.manualStatus) {
-                      onManualStatusChange(
-                        monitor.id,
-                        monitor.manualStatus,
-                        value
-                      );
-                    }
-                  }}
-                  className="short"
-                />
-                <span>{intl.formatMessage(messages.minutesUnit)}</span>
-              </label>
-              {manualActive && (
-                <Button
-                  buttonType="ghost"
-                  buttonSize="sm"
-                  type="button"
-                  onClick={() =>
-                    onManualStatusChange(monitor.id, undefined, minutes)
-                  }
-                  aria-label={intl.formatMessage(messages.clearOverride)}
-                  title={intl.formatMessage(messages.clearOverride)}
-                >
-                  <XMarkIcon className="h-4 w-4" />
-                  <span className="ml-1 hidden sm:inline">
-                    {intl.formatMessage(messages.clearOverride)}
-                  </span>
-                </Button>
-              )}
-            </div>
-            {manualActive && monitor.manualStatusUntil && (
-              <p className="text-xs text-gray-400">
-                {intl.formatMessage(messages.activeUntil, {
-                  time: intl.formatTime(new Date(monitor.manualStatusUntil), {
-                    timeStyle: 'short',
-                  }),
-                })}
               </p>
             )}
           </div>
