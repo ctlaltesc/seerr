@@ -285,10 +285,9 @@ const Broadcast = () => {
                   <Field
                     id="suppressReportsForMinutes"
                     name="suppressReportsForMinutes"
-                    type="number"
-                    min={0}
-                    max={1440}
+                    type="text"
                     inputMode="numeric"
+                    pattern="[0-9]*"
                     className="short"
                   />
                 </div>

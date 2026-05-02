@@ -329,6 +329,88 @@ describe('DELETE /uptimerobot/announcements/:id', () => {
   });
 });
 
+describe('POST /uptimerobot/override', () => {
+  beforeEach(() => {
+    // Drop any persisted overrides between tests.
+    const settings = getSettings();
+    settings.uptimerobot.monitorOverrides = [];
+  });
+
+  it('rejects non-admin users with 403', async () => {
+    const friend = await loginAs('friend@seerr.dev', 'test1234');
+    const res = await friend
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1001, status: 'maintenance', minutes: 30 });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('rejects an unknown monitor id with 404', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 99999, status: 'maintenance', minutes: 30 });
+    assert.strictEqual(res.status, 404);
+  });
+
+  it('rejects an invalid status with 400', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const res = await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1001, status: 'bogus', minutes: 30 });
+    assert.strictEqual(res.status, 400);
+  });
+
+  it('persists a manual status pin with the configured window', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    const before = Date.now();
+    const res = await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1001, status: 'maintenance', minutes: 30 });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.manualStatus, 'maintenance');
+    assert.ok(res.body.manualStatusUntil >= before + 30 * 60_000 - 5_000);
+    const settings = getSettings();
+    const ov = settings.uptimerobot.monitorOverrides.find((o) => o.id === 1001);
+    assert.strictEqual(ov?.manualStatus, 'maintenance');
+  });
+
+  it('clears the pin and drops the override row when status is null', async () => {
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1001, status: 'major_outage', minutes: 60 });
+    const clear = await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1001, status: null });
+    assert.strictEqual(clear.status, 200);
+    assert.strictEqual(clear.body.manualStatus, null);
+    const settings = getSettings();
+    const ov = settings.uptimerobot.monitorOverrides.find((o) => o.id === 1001);
+    assert.strictEqual(ov, undefined);
+  });
+
+  it('preserves other override fields when clearing the pin', async () => {
+    const settings = getSettings();
+    settings.uptimerobot.monitorOverrides = [
+      { id: 1001, name: 'Custom', hideFromReports: true },
+    ];
+    const admin = await loginAs('admin@seerr.dev', 'test1234');
+    await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1001, status: 'degraded', minutes: 10 });
+    const clear = await admin
+      .post('/uptimerobot/override')
+      .send({ monitorId: 1001, status: null });
+    assert.strictEqual(clear.status, 200);
+    const ov = getSettings().uptimerobot.monitorOverrides.find(
+      (o) => o.id === 1001
+    );
+    assert.strictEqual(ov?.name, 'Custom');
+    assert.strictEqual(ov?.hideFromReports, true);
+    assert.strictEqual(ov?.manualStatus, undefined);
+  });
+});
+
 describe('Problem Reports', () => {
   beforeEach(() => {
     // Reset any leftover suppression window between tests so the routes are
