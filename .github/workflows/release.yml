@@ -52,7 +52,23 @@ jobs:
           persist-credentials: false
 
       - name: Draft Release
-        run: gh release create ${GITHUB_REF_NAME} -t "Release ${GITHUB_REF_NAME}" -n "${RELEASE_BODY}" --draft
+        # Tolerate a release that was already created manually (e.g. via the
+        # GitHub web UI) — re-running the workflow shouldn't fail just
+        # because the tag's release exists. Create on first run, otherwise
+        # update notes/title in place.
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" --json tagName -q .tagName >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists — updating notes."
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "Release ${GITHUB_REF_NAME}" \
+              --notes "${RELEASE_BODY}"
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              -t "Release ${GITHUB_REF_NAME}" \
+              -n "${RELEASE_BODY}" \
+              --draft
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BODY: ${{ needs.changelog.outputs.release_body }}
