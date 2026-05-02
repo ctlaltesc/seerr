@@ -172,7 +172,11 @@ router.use('/collection', isAuthenticated(), collectionRoutes);
 router.use('/service', isAuthenticated(), serviceRoutes);
 router.use('/issue', isAuthenticated(), issueRoutes);
 router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
-router.use('/uptimerobot', isAuthenticated(), uptimeRobotRoutes);
+router.use(
+  '/uptimerobot',
+  isAuthenticated(Permission.STATUS_VIEW),
+  uptimeRobotRoutes
+);
 router.use('/auth', authRoutes);
 router.use(
   '/overrideRule',

@@ -472,7 +472,10 @@ class Settings {
         applicationTitle: 'Seerr',
         applicationUrl: '',
         cacheImages: false,
-        defaultPermissions: Permission.REQUEST,
+        defaultPermissions:
+          Permission.REQUEST |
+          Permission.STATUS_VIEW |
+          Permission.STATUS_REPORT,
         defaultQuotas: {
           movie: {},
           tv: {},

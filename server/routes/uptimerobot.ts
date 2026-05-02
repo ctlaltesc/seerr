@@ -500,6 +500,7 @@ statusRoutes.get('/reports', async (req, res, next) => {
  */
 statusRoutes.post<never, unknown, { monitorIds?: number[] }>(
   '/reports',
+  isAuthenticated(Permission.STATUS_REPORT),
   async (req, res, next) => {
     if (!req.user) {
       return next({ status: 403, message: 'Authentication required.' });

@@ -6,6 +6,7 @@ import { Announcement } from '@server/entity/Announcement';
 import { ProblemReport } from '@server/entity/ProblemReport';
 import { User } from '@server/entity/User';
 import { UserMonitorRecoverySubscription } from '@server/entity/UserMonitorRecoverySubscription';
+import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import uptimeRobotService from '@server/lib/uptimerobot';
 import { checkUser, isAuthenticated } from '@server/middleware/auth';
@@ -32,7 +33,11 @@ function createApp() {
   );
   app.use(checkUser);
   app.use('/auth', authRoutes);
-  app.use('/uptimerobot', isAuthenticated(), uptimeRobotRoutes);
+  app.use(
+    '/uptimerobot',
+    isAuthenticated(Permission.STATUS_VIEW),
+    uptimeRobotRoutes
+  );
   app.use(
     (
       err: { status?: number; message?: string },
@@ -467,6 +472,46 @@ describe('DELETE /uptimerobot/suppression', () => {
     const admin = await loginAs('admin@seerr.dev', 'test1234');
     const res = await admin.delete('/uptimerobot/suppression');
     assert.strictEqual(res.status, 204);
+  });
+});
+
+describe('Status permissions', () => {
+  it('rejects users without STATUS_VIEW with 403 on GET /uptimerobot', async () => {
+    const limited = await loginAs('limited@seerr.dev', 'test1234');
+    const res = await limited.get('/uptimerobot');
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('rejects users without STATUS_REPORT with 403 on POST /uptimerobot/reports', async () => {
+    // Grant just STATUS_VIEW so the user passes the parent gate.
+    const repo = getRepository(User);
+    const limited = await repo.findOneOrFail({
+      where: { email: 'limited@seerr.dev' },
+    });
+    limited.permissions = 1; // STATUS_VIEW only
+    await repo.save(limited);
+
+    const agent = await loginAs('limited@seerr.dev', 'test1234');
+    const res = await agent
+      .post('/uptimerobot/reports')
+      .send({ monitorIds: [1002] });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it('lets users with STATUS_VIEW + STATUS_REPORT submit reports', async () => {
+    const repo = getRepository(User);
+    const limited = await repo.findOneOrFail({
+      where: { email: 'limited@seerr.dev' },
+    });
+    limited.permissions = 1 | 536870912; // VIEW + REPORT
+    await repo.save(limited);
+
+    const agent = await loginAs('limited@seerr.dev', 'test1234');
+    const res = await agent
+      .post('/uptimerobot/reports')
+      .send({ monitorIds: [1002] });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.created, 1);
   });
 });
 

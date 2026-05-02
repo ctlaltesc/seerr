@@ -85,6 +85,12 @@ export const messages = defineMessages('components.PermissionEdit', {
   viewblocklistedItems: 'View blocklisted media.',
   viewblocklistedItemsDescription:
     'Grant permission to view blocklisted media.',
+  statusView: 'View Status Page',
+  statusViewDescription:
+    'Grant permission to view the Status page and the home page banner that surfaces downed services.',
+  statusReport: 'Report a Problem',
+  statusReportDescription:
+    'Grant permission to submit a “Report a Problem” form from the Status page.',
 });
 
 interface PermissionEditProps {
@@ -352,6 +358,20 @@ export const PermissionEdit = ({
             messages.viewblocklistedItemsDescription
           ),
           permission: Permission.VIEW_BLOCKLIST,
+        },
+      ],
+    },
+    {
+      id: 'statusview',
+      name: intl.formatMessage(messages.statusView),
+      description: intl.formatMessage(messages.statusViewDescription),
+      permission: Permission.STATUS_VIEW,
+      children: [
+        {
+          id: 'statusreport',
+          name: intl.formatMessage(messages.statusReport),
+          description: intl.formatMessage(messages.statusReportDescription),
+          permission: Permission.STATUS_REPORT,
         },
       ],
     },

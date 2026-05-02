@@ -1,5 +1,6 @@
 import Button from '@app/components/Common/Button';
 import type { StatusResponse } from '@app/components/Status';
+import { Permission, useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
 import {
   BellAlertIcon,
@@ -27,11 +28,19 @@ const messages = defineMessages('components.StatusBanner', {
 const StatusBanner = () => {
   const intl = useIntl();
   const { addToast } = useToasts();
+  const { hasPermission } = useUser();
   const [busy, setBusy] = useState<number | null>(null);
 
-  const { data, mutate } = useSWR<StatusResponse>('/api/v1/uptimerobot', {
-    refreshInterval: 60000,
-  });
+  const canViewStatus = hasPermission(Permission.STATUS_VIEW);
+
+  const { data, mutate } = useSWR<StatusResponse>(
+    canViewStatus ? '/api/v1/uptimerobot' : null,
+    { refreshInterval: 60000 }
+  );
+
+  if (!canViewStatus) {
+    return null;
+  }
 
   if (!data || !data.configured) return null;
 
