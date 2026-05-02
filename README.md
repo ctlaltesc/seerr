@@ -16,6 +16,14 @@
 
 This fork is entirely AI-generated and reviewed. It is not held to the same security or stability testing standards as the genuine project and is only recommended for advanced users who understand what this means.
 
+<img src="./public/Service.png" alt="Seerr application preview" />
+
+<img src="./public/Broadcast.png" alt="Seerr application preview" />
+
+<p align="center">
+  <img src="./public/Mobile.jpg" alt="Seerr application preview" width="400" />
+</p>
+
 ##
 
 **Seerr** is a free and open source software application for managing requests for your media library. It integrates with the media server of your choice: [Jellyfin](https://jellyfin.org), [Plex](https://plex.tv), and [Emby](https://emby.media/). In addition, it integrates with your existing services, such as **[Sonarr](https://sonarr.tv/)**, **[Radarr](https://radarr.video/)**.
