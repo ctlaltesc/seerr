@@ -29,7 +29,8 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      NUMBER: ${{ github.event.pull_request.number }}    steps:
+      NUMBER: ${{ github.event.pull_request.number }}
+    steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -171,122 +172,24 @@ jobs:
         with:
           report_paths: 'report.xml'
 
-  build:
-    name: Build (per-arch, native runners)
-    if: github.ref == 'refs/heads/main'
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            platform: linux/amd64
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            platform: linux/arm64
-            arch: arm64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        with:
-          persist-credentials: false
-
-      - name: Commit timestamp
-        id: ts
-        run: echo "TIMESTAMP=$(git log -1 --pretty=%ct)" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-
-      - name: Warm cache (no push) — ${{ matrix.platform }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: ${{ matrix.platform }}
-          push: false
-          build-args: |
-            COMMIT_TAG=${{ github.sha }}
-            BUILD_VERSION=main
-            SOURCE_DATE_EPOCH=${{ steps.ts.outputs.TIMESTAMP }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
-          provenance: false
-
-  publish:
-    name: Publish multi-arch image
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        with:
-          persist-credentials: false
-
-      - name: Commit timestamp
-        id: ts
-        run: echo "TIMESTAMP=$(git log -1 --pretty=%ct)" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-        with:
-          images: |
-            ghcr.io/${{ github.repository }}
-          tags: |
-            type=raw,value=main
-            type=raw,value=latest
-            type=sha
-          labels: |
-            org.opencontainers.image.created=${{ steps.ts.outputs.TIMESTAMP }}
-
-      - name: Build & Push (multi-arch, single tag)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            COMMIT_TAG=${{ github.sha }}
-            BUILD_VERSION=main
-            SOURCE_DATE_EPOCH=${{ steps.ts.outputs.TIMESTAMP }}
-          labels: ${{ steps.meta.outputs.labels }}
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: |
-            type=gha,scope=linux/amd64
-            type=gha,scope=linux/arm64
-          cache-to: type=gha,mode=max
-          provenance: false
-
   discord:
     name: Send Discord Notification
-    needs: publish
+    needs: [test, unit-test]
     if: always() && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - name: Determine Workflow Status
         id: status
         run: |
-          case "${{ needs.publish.result }}" in
-            success)   echo "status=Success"   >> $GITHUB_OUTPUT; echo "colour=3066993"  >> $GITHUB_OUTPUT ;;
-            failure)   echo "status=Failure"   >> $GITHUB_OUTPUT; echo "colour=15158332" >> $GITHUB_OUTPUT ;;
-            cancelled) echo "status=Cancelled" >> $GITHUB_OUTPUT; echo "colour=10181046" >> $GITHUB_OUTPUT ;;
-            *)         echo "status=Skipped"   >> $GITHUB_OUTPUT; echo "colour=9807270"  >> $GITHUB_OUTPUT ;;
-          esac
+          if [[ "${{ needs.test.result }}" == "failure" || "${{ needs.unit-test.result }}" == "failure" ]]; then
+            echo "status=Failure"   >> $GITHUB_OUTPUT; echo "colour=15158332" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.test.result }}" == "cancelled" || "${{ needs.unit-test.result }}" == "cancelled" ]]; then
+            echo "status=Cancelled" >> $GITHUB_OUTPUT; echo "colour=10181046" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.test.result }}" == "success" && "${{ needs.unit-test.result }}" == "success" ]]; then
+            echo "status=Success"   >> $GITHUB_OUTPUT; echo "colour=3066993"  >> $GITHUB_OUTPUT
+          else
+            echo "status=Skipped"   >> $GITHUB_OUTPUT; echo "colour=9807270"  >> $GITHUB_OUTPUT
+          fi
 
       - name: Send Discord notification
         shell: bash
